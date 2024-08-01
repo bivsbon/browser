@@ -1,20 +1,28 @@
 import socket
 import ssl
 
+ENTITIES = {
+    "&lt;": "<",
+    "&gt;": ">"
+}
+
 
 class URL:
-    _SUPPORTED_SCHEME = ["http", "https", "file", "data"]
+    _SUPPORTED_SCHEME = ["http", "https", "file", "data", "view-source"]
+    _MAX_REDIRECTS = 3
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, n_redirects: int):
         self.scheme = self._get_scheme(url)
         assert self.scheme
 
         if self.scheme == "http" or self.scheme == "https":
             self._parse_url_http(url)
-        elif self. scheme == "file":
+        elif self.scheme == "file":
             self._parse_url_file(url)
         elif self.scheme == "data":
             self._parse_url_data(url)
+        elif self.scheme == "view-source":
+            self._parse_url_view_source(url)
 
     def request(self) -> str:
         if self.scheme == "http" or self.scheme == "https":
@@ -23,6 +31,8 @@ class URL:
             return self._request_file()
         elif self.scheme == "data":
             return self._request_data()
+        elif self.scheme == "view-source":
+            return self._request_view_source()
 
     def _request_http_and_https(self) -> str:
         s = socket.socket(
@@ -69,6 +79,9 @@ class URL:
     def _request_data(self) -> str:
         return self.data
 
+    def _request_view_source(self) -> str:
+        return self.sub_url._request_http_and_https()
+
     def _get_scheme(self, url: str):
         for scheme in self._SUPPORTED_SCHEME:
             if url.startswith(scheme):
@@ -101,8 +114,13 @@ class URL:
         assert media in ["text/html"]
         self.data = data
 
+    def _parse_url_view_source(self, url: str):
+        url = url.split(":", 1)[1]
+        self.sub_url = URL(url)
 
-def show(body):
+
+def show(body: str):
+    result = ""
     in_tag = False
     for c in body:
         if c == "<":
@@ -110,14 +128,28 @@ def show(body):
         elif c == ">":
             in_tag = False
         elif not in_tag:
-            print(c, end="")
+            result += c
+
+    for entity, value in ENTITIES.items():
+        result = result.replace(entity, value)
+    print(result)
 
 
-def load(url):
+def show_source(body: str):
+    for entity, value in ENTITIES.items():
+        body = body.replace(entity, value)
+    print(body)
+
+
+def load(url: URL):
     body = url.request()
-    show(body)
+    if url.scheme == "view-source":
+        show_source(body)
+    else:
+        show(body)
 
 
 if __name__ == "__main__":
     import sys
+
     load(URL(sys.argv[1]))
