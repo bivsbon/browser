@@ -1,5 +1,7 @@
+import gzip
 import socket
 import ssl
+import tkinter
 
 ENTITIES = {
     "&lt;": "<",
@@ -51,23 +53,22 @@ class URL:
         request += "Host: {}\r\n".format(self.host)
         request += "Connection: {}\r\n".format("close")
         request += "User-Agent: {}\r\n".format("Quack Quack")
+        request += "Accept-Encoding: {}\r\n".format("gzip")
         request += "\r\n"
         s.send(request.encode("utf8"))
 
-        response = s.makefile("r", encoding="utf8", newline="\r\n")
-        statusline = response.readline()
+        response = s.makefile("rb", encoding="utf8", newline="\r\n")
+
+        statusline = response.readline().decode('utf-8')
         version, status, explanation = statusline.split(" ", 2)
 
         response_headers = {}
         while True:
-            line = response.readline()
+            line = response.readline().decode('utf-8')
             if line == "\r\n":
                 break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
-
-        assert "transfer-encoding" not in response_headers
-        assert "content-encoding" not in response_headers
 
         if status.startswith("3"):
             if self.n_redirects < self._MAX_REDIRECTS:
@@ -75,8 +76,10 @@ class URL:
                 content = URL(self._parse_redirect_url(redirect_url), self.n_redirects+1).request()
                 s.close()
                 return content
-
-        content = response.read()
+        if "content-encoding" not in response_headers:
+            content = response.read().decode("utf8")
+        elif response_headers["content-encoding"] == "gzip":
+            content = gzip.decompress(response.read()).decode("utf-8")
         s.close()
 
         return content
@@ -134,7 +137,74 @@ class URL:
             return value
 
 
-def show(body: str):
+class Browser:
+    WIDTH, HEIGHT = 800, 600
+    HSTEP, VSTEP = 13, 18
+    SCROLL_STEP = 100
+
+    def __init__(self):
+        self.display_list = []
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window,
+            width=self.WIDTH,
+            height=self.HEIGHT
+        )
+        self.canvas.pack()
+        self.scroll = 0
+        self.window.bind("<Down>", self.scrolldown)
+        self.window.bind("<Up>", self.scrollup)
+        self.window.bind("<MouseWheel>", self.scroll_mouse_wheel)
+
+    def scrolldown(self, e, scroll_step=SCROLL_STEP):
+        self.scroll += scroll_step
+        self.draw()
+
+    def scrollup(self, e, scroll_step=SCROLL_STEP):
+        self.scroll -= scroll_step
+        if self.scroll < 0:
+            self.scroll = 0
+        self.draw()
+
+    def scroll_mouse_wheel(self, e: tkinter.Event):
+        if e.delta > 0:
+            self.scrollup(e, 7*e.delta)
+        else:
+            self.scrolldown(e, -7*e.delta)
+
+    def layout(self, text):
+        display_list = []
+        cursor_x, cursor_y = self.HSTEP, self.VSTEP
+        for c in text:
+            if c == '\n':
+                cursor_x = self.HSTEP
+                cursor_y += self.VSTEP + 5
+            else:
+                display_list.append((cursor_x, cursor_y, c))
+                cursor_x += self.HSTEP
+            if cursor_x >= self.WIDTH - self.HSTEP:
+                cursor_y += self.VSTEP
+                cursor_x = self.HSTEP
+        return display_list
+
+    def load(self, url: URL):
+        body = url.request()
+        text = lex(body)
+        self.display_list = self.layout(text)
+        self.draw()
+
+    def draw(self):
+        self.canvas.delete("all")
+        for x, y, c in self.display_list:
+            if y > self.scroll + self.HEIGHT:
+                continue
+            if y + self.VSTEP < self.scroll:
+                continue
+
+            self.canvas.create_text(x, y - self.scroll, text=c)
+
+
+def lex(body: str):
     result = ""
     in_tag = False
     for c in body:
@@ -147,7 +217,8 @@ def show(body: str):
 
     for entity, value in ENTITIES.items():
         result = result.replace(entity, value)
-    print(result)
+    # print(result)
+    return result
 
 
 def show_source(body: str):
@@ -161,10 +232,12 @@ def load(url: URL):
     if url.scheme == "view-source":
         show_source(body)
     else:
-        show(body)
+        print(lex(body))
 
 
 if __name__ == "__main__":
     import sys
 
-    load(URL(sys.argv[1], 0))
+    Browser().load(URL(sys.argv[1], 0))
+    tkinter.mainloop()
+    # load(URL(sys.argv[1], 0))
