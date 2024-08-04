@@ -73,7 +73,7 @@ class URL:
         if status.startswith("3"):
             if self.n_redirects < self._MAX_REDIRECTS:
                 redirect_url = response_headers["location"]
-                content = URL(self._parse_redirect_url(redirect_url), self.n_redirects+1).request()
+                content = URL(self._parse_redirect_url(redirect_url), self.n_redirects + 1).request()
                 s.close()
                 return content
         if "content-encoding" not in response_headers:
@@ -142,22 +142,37 @@ class Browser:
     HSTEP, VSTEP = 13, 18
     SCROLL_STEP = 100
 
+    text = ""
+    scroll = 0
+    max_scroll = 0
+    display_list = []
+    scroll_bar_x0 = 0
+    scroll_bar_x1 = 0
+    scroll_bar_height = 0
+
     def __init__(self):
-        self.display_list = []
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
             self.window,
             width=self.WIDTH,
             height=self.HEIGHT
         )
-        self.canvas.pack()
-        self.scroll = 0
+        self.canvas.pack(fill=tkinter.BOTH, expand=True)
         self.window.bind("<Down>", self.scrolldown)
         self.window.bind("<Up>", self.scrollup)
         self.window.bind("<MouseWheel>", self.scroll_mouse_wheel)
+        self.window.bind("<Configure>", self.resize)
+
+    def resize(self, e: tkinter.Event):
+        self.WIDTH = e.width
+        self.HEIGHT = e.height
+        self.display_list = self.layout(self.text)
+        self.draw()
 
     def scrolldown(self, e, scroll_step=SCROLL_STEP):
         self.scroll += scroll_step
+        if self.scroll > self.max_scroll:
+            self.scroll = self.max_scroll
         self.draw()
 
     def scrollup(self, e, scroll_step=SCROLL_STEP):
@@ -168,9 +183,9 @@ class Browser:
 
     def scroll_mouse_wheel(self, e: tkinter.Event):
         if e.delta > 0:
-            self.scrollup(e, 7*e.delta)
+            self.scrollup(e, 7 * e.delta)
         else:
-            self.scrolldown(e, -7*e.delta)
+            self.scrolldown(e, -7 * e.delta)
 
     def layout(self, text):
         display_list = []
@@ -182,15 +197,20 @@ class Browser:
             else:
                 display_list.append((cursor_x, cursor_y, c))
                 cursor_x += self.HSTEP
+
             if cursor_x >= self.WIDTH - self.HSTEP:
                 cursor_y += self.VSTEP
                 cursor_x = self.HSTEP
+        self.max_scroll = cursor_y - self.HEIGHT
+        self.scroll_bar_x0 = self.WIDTH - self.HSTEP + 2
+        self.scroll_bar_x1 = self.WIDTH - 2
+        self.scroll_bar_height = self.HEIGHT / (self.max_scroll + self.HEIGHT) * self.HEIGHT
         return display_list
 
     def load(self, url: URL):
         body = url.request()
-        text = lex(body)
-        self.display_list = self.layout(text)
+        self.text = lex(body)
+        self.display_list = self.layout(self.text)
         self.draw()
 
     def draw(self):
@@ -202,6 +222,12 @@ class Browser:
                 continue
 
             self.canvas.create_text(x, y - self.scroll, text=c)
+            y0 = self.scroll / self.max_scroll * (self.HEIGHT - self.scroll_bar_height)
+            self.canvas.create_rectangle(self.scroll_bar_x0,
+                                         y0,
+                                         self.scroll_bar_x1,
+                                         y0 + self.scroll_bar_height,
+                                         fill="red")
 
 
 def lex(body: str):
