@@ -9,10 +9,12 @@ ENTITIES = {
 
 class URL:
     _SUPPORTED_SCHEME = ["http", "https", "file", "data", "view-source"]
-    _MAX_REDIRECTS = 3
+    _MAX_REDIRECTS = 2
 
     def __init__(self, url: str, n_redirects: int):
+        print("Redirect =", n_redirects)
         self.scheme = self._get_scheme(url)
+        self.n_redirects = n_redirects
         assert self.scheme
 
         if self.scheme == "http" or self.scheme == "https":
@@ -67,6 +69,13 @@ class URL:
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
 
+        if status.startswith("3"):
+            if self.n_redirects < self._MAX_REDIRECTS:
+                redirect_url = response_headers["location"]
+                content = URL(self._parse_redirect_url(redirect_url), self.n_redirects+1).request()
+                s.close()
+                return content
+
         content = response.read()
         s.close()
 
@@ -116,7 +125,13 @@ class URL:
 
     def _parse_url_view_source(self, url: str):
         url = url.split(":", 1)[1]
-        self.sub_url = URL(url)
+        self.sub_url = URL(url, self.n_redirects)
+
+    def _parse_redirect_url(self, value):
+        if value.startswith("/"):
+            return f"{self.scheme}://{self.host}:{self.port}{value}"
+        else:
+            return value
 
 
 def show(body: str):
@@ -152,4 +167,4 @@ def load(url: URL):
 if __name__ == "__main__":
     import sys
 
-    load(URL(sys.argv[1]))
+    load(URL(sys.argv[1], 0))
