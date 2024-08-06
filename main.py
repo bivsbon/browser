@@ -2,6 +2,7 @@ import gzip
 import socket
 import ssl
 import tkinter
+from tkinter import font
 
 ENTITIES = {
     "&lt;": "<",
@@ -9,24 +10,47 @@ ENTITIES = {
 }
 
 
+class URLMalformedException(Exception):
+    pass
+
+
+class Text:
+    def __init__(self, text):
+        self.text = text
+
+
+class Tag:
+    def __init__(self, tag):
+        self.tag = tag
+
+
 class URL:
-    _SUPPORTED_SCHEME = ["http", "https", "file", "data", "view-source"]
+    _SUPPORTED_SCHEME = ["http", "https", "file", "data", "view-source", "about"]
     _MAX_REDIRECTS = 2
 
     def __init__(self, url: str, n_redirects: int):
         print("Redirect =", n_redirects)
         self.scheme = self._get_scheme(url)
         self.n_redirects = n_redirects
-        assert self.scheme
+        if not self.scheme:
+            self.scheme = "about"
+            self.url = "blank"
+            return
 
-        if self.scheme == "http" or self.scheme == "https":
-            self._parse_url_http(url)
-        elif self.scheme == "file":
-            self._parse_url_file(url)
-        elif self.scheme == "data":
-            self._parse_url_data(url)
-        elif self.scheme == "view-source":
-            self._parse_url_view_source(url)
+        try:
+            if self.scheme == "http" or self.scheme == "https":
+                self._parse_url_http(url)
+            elif self.scheme == "file":
+                self._parse_url_file(url)
+            elif self.scheme == "data":
+                self._parse_url_data(url)
+            elif self.scheme == "view-source":
+                self._parse_url_view_source(url)
+            elif self.scheme == "about":
+                pass
+        except URLMalformedException:
+            self.scheme = "about"
+            self.url = "blank"
 
     def request(self) -> str:
         if self.scheme == "http" or self.scheme == "https":
@@ -37,6 +61,8 @@ class URL:
             return self._request_data()
         elif self.scheme == "view-source":
             return self._request_view_source()
+        elif self.scheme == "about":
+            return self._request_about()
 
     def _request_http_and_https(self) -> str:
         s = socket.socket(
@@ -93,6 +119,9 @@ class URL:
 
     def _request_view_source(self) -> str:
         return self.sub_url._request_http_and_https()
+
+    def _request_about(self) -> str:
+        return ""
 
     def _get_scheme(self, url: str):
         for scheme in self._SUPPORTED_SCHEME:
@@ -187,21 +216,42 @@ class Browser:
         else:
             self.scrolldown(e, -7 * e.delta)
 
-    def layout(self, text):
+    def layout(self, tokens: list):
+        weight = "normal"
+        style = "roman"
+        font_ = tkinter.font.Font()
         display_list = []
         cursor_x, cursor_y = self.HSTEP, self.VSTEP
-        for c in text:
-            if c == '\n':
-                cursor_x = self.HSTEP
-                cursor_y += self.VSTEP + 5
-            else:
-                display_list.append((cursor_x, cursor_y, c))
-                cursor_x += self.HSTEP
+        for tok in tokens:
+            if isinstance(tok, Text):
+                for word in tok.text.split():
+                    font_ = tkinter.font.Font(
+                        family="Times",
+                        size=16,
+                        weight=weight,
+                        slant=style,
+                    )
+                    w = font_.measure(word)
 
-            if cursor_x >= self.WIDTH - self.HSTEP:
-                cursor_y += self.VSTEP
-                cursor_x = self.HSTEP
-        self.max_scroll = cursor_y - self.HEIGHT
+                    if cursor_x + w > self.WIDTH - self.HSTEP:
+                        cursor_y += font_.metrics("linespace") * 1.25
+                        cursor_x = self.HSTEP
+
+                    display_list.append((cursor_x, cursor_y, word, font_))
+                    cursor_x += w + font_.measure(" ")
+
+                    if cursor_x >= self.WIDTH - self.HSTEP:
+                        cursor_y += self.VSTEP
+                        cursor_x = self.HSTEP
+            elif tok.tag == "i":
+                style = "italic"
+            elif tok.tag == "/i":
+                style = "roman"
+            elif tok.tag == "b":
+                weight = "bold"
+            elif tok.tag == "/b":
+                weight = "normal"
+        self.max_scroll = 0 if cursor_y - self.HEIGHT < 0 else cursor_y - self.HEIGHT
         self.scroll_bar_x0 = self.WIDTH - self.HSTEP + 2
         self.scroll_bar_x1 = self.WIDTH - 2
         self.scroll_bar_height = self.HEIGHT / (self.max_scroll + self.HEIGHT) * self.HEIGHT
@@ -215,31 +265,40 @@ class Browser:
 
     def draw(self):
         self.canvas.delete("all")
-        for x, y, c in self.display_list:
+        for x, y, c, font_ in self.display_list:
             if y > self.scroll + self.HEIGHT:
                 continue
             if y + self.VSTEP < self.scroll:
                 continue
 
-            self.canvas.create_text(x, y - self.scroll, text=c)
-            y0 = self.scroll / self.max_scroll * (self.HEIGHT - self.scroll_bar_height)
-            self.canvas.create_rectangle(self.scroll_bar_x0,
-                                         y0,
-                                         self.scroll_bar_x1,
-                                         y0 + self.scroll_bar_height,
-                                         fill="red")
+            self.canvas.create_text(x, y - self.scroll, text=c, font=font_, anchor="nw")
+            if self.max_scroll != 0:
+                y0 = self.scroll / self.max_scroll * (self.HEIGHT - self.scroll_bar_height)
+                self.canvas.create_rectangle(self.scroll_bar_x0,
+                                             y0,
+                                             self.scroll_bar_x1,
+                                             y0 + self.scroll_bar_height,
+                                             fill="red")
 
 
-def lex(body: str):
-    result = ""
+def lex(body: str) -> list:
+    out = []
+    buffer = ""
     in_tag = False
     for c in body:
         if c == "<":
             in_tag = True
+            if buffer: out.append(Text(buffer))
+            buffer = ""
         elif c == ">":
             in_tag = False
-        elif not in_tag:
-            result += c
+            out.append(Tag(buffer))
+            buffer = ""
+        else:
+            buffer += c
+    if not in_tag and buffer:
+        out.append(Text(buffer))
+    return out
 
     for entity, value in ENTITIES.items():
         result = result.replace(entity, value)
