@@ -8,6 +8,8 @@ ENTITIES = {
     "&lt;": "<",
     "&gt;": ">"
 }
+WIDTH, HEIGHT = 800, 600
+HSTEP, VSTEP = 13, 18
 
 
 class URLMalformedException(Exception):
@@ -22,6 +24,55 @@ class Text:
 class Tag:
     def __init__(self, tag):
         self.tag = tag
+
+
+class Layout:
+    def __init__(self, tokens):
+        self.display_list = []
+        self.cursor_x = HSTEP
+        self.cursor_y = VSTEP
+        self.weight = "normal"
+        self.style = "roman"
+
+        for tok in tokens:
+            self.token(tok)
+
+        self.max_scroll = 0 if self.cursor_y - HEIGHT < 0 else self.cursor_y - HEIGHT
+        self.scroll_bar_x0 = WIDTH - HSTEP + 2
+        self.scroll_bar_x1 = WIDTH - 2
+        self.scroll_bar_height = HEIGHT / (self.max_scroll + HEIGHT) * HEIGHT
+
+    def word(self, word):
+        font_ = tkinter.font.Font(
+            size=16,
+            weight=self.weight,
+            slant=self.style,
+        )
+        w = font_.measure(word)
+
+        if self.cursor_x + w > WIDTH - HSTEP:
+            self.cursor_y += font_.metrics("linespace") * 1.25
+            self.cursor_x = HSTEP
+
+        self.display_list.append((self.cursor_x, self.cursor_y, word, font_))
+        self.cursor_x += w + font_.measure(" ")
+
+        if self.cursor_x >= WIDTH - HSTEP:
+            self.cursor_y += VSTEP
+            self.cursor_x = HSTEP
+
+    def token(self, tok):
+        if isinstance(tok, Text):
+            for word in tok.text.split():
+                self.word(word)
+        elif tok.tag == "i":
+            self.style = "italic"
+        elif tok.tag == "/i":
+            self.style = "roman"
+        elif tok.tag == "b":
+            self.weight = "bold"
+        elif tok.tag == "/b":
+            self.weight = "normal"
 
 
 class URL:
@@ -167,24 +218,20 @@ class URL:
 
 
 class Browser:
-    WIDTH, HEIGHT = 800, 600
-    HSTEP, VSTEP = 13, 18
     SCROLL_STEP = 100
 
-    text = ""
-    scroll = 0
-    max_scroll = 0
+    layout = None
+    tokens = []
     display_list = []
-    scroll_bar_x0 = 0
-    scroll_bar_x1 = 0
-    scroll_bar_height = 0
+
+    scroll = 0
 
     def __init__(self):
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
             self.window,
-            width=self.WIDTH,
-            height=self.HEIGHT
+            width=WIDTH,
+            height=HEIGHT
         )
         self.canvas.pack(fill=tkinter.BOTH, expand=True)
         self.window.bind("<Down>", self.scrolldown)
@@ -193,15 +240,17 @@ class Browser:
         self.window.bind("<Configure>", self.resize)
 
     def resize(self, e: tkinter.Event):
-        self.WIDTH = e.width
-        self.HEIGHT = e.height
-        self.display_list = self.layout(self.text)
+        global WIDTH, HEIGHT
+        WIDTH = e.width
+        HEIGHT = e.height
+        self.layout = Layout(self.tokens)
+        self.display_list = self.layout.display_list
         self.draw()
 
     def scrolldown(self, e, scroll_step=SCROLL_STEP):
         self.scroll += scroll_step
-        if self.scroll > self.max_scroll:
-            self.scroll = self.max_scroll
+        if self.scroll > self.layout.max_scroll:
+            self.scroll = self.layout.max_scroll
         self.draw()
 
     def scrollup(self, e, scroll_step=SCROLL_STEP):
@@ -216,68 +265,28 @@ class Browser:
         else:
             self.scrolldown(e, -7 * e.delta)
 
-    def layout(self, tokens: list):
-        weight = "normal"
-        style = "roman"
-        font_ = tkinter.font.Font()
-        display_list = []
-        cursor_x, cursor_y = self.HSTEP, self.VSTEP
-        for tok in tokens:
-            if isinstance(tok, Text):
-                for word in tok.text.split():
-                    font_ = tkinter.font.Font(
-                        family="Times",
-                        size=16,
-                        weight=weight,
-                        slant=style,
-                    )
-                    w = font_.measure(word)
-
-                    if cursor_x + w > self.WIDTH - self.HSTEP:
-                        cursor_y += font_.metrics("linespace") * 1.25
-                        cursor_x = self.HSTEP
-
-                    display_list.append((cursor_x, cursor_y, word, font_))
-                    cursor_x += w + font_.measure(" ")
-
-                    if cursor_x >= self.WIDTH - self.HSTEP:
-                        cursor_y += self.VSTEP
-                        cursor_x = self.HSTEP
-            elif tok.tag == "i":
-                style = "italic"
-            elif tok.tag == "/i":
-                style = "roman"
-            elif tok.tag == "b":
-                weight = "bold"
-            elif tok.tag == "/b":
-                weight = "normal"
-        self.max_scroll = 0 if cursor_y - self.HEIGHT < 0 else cursor_y - self.HEIGHT
-        self.scroll_bar_x0 = self.WIDTH - self.HSTEP + 2
-        self.scroll_bar_x1 = self.WIDTH - 2
-        self.scroll_bar_height = self.HEIGHT / (self.max_scroll + self.HEIGHT) * self.HEIGHT
-        return display_list
-
     def load(self, url: URL):
         body = url.request()
-        self.text = lex(body)
-        self.display_list = self.layout(self.text)
+        self.tokens = lex(body)
+        self.layout = Layout(self.tokens)
+        self.display_list = self.layout.display_list
         self.draw()
 
     def draw(self):
         self.canvas.delete("all")
         for x, y, c, font_ in self.display_list:
-            if y > self.scroll + self.HEIGHT:
+            if y > self.scroll + HEIGHT:
                 continue
-            if y + self.VSTEP < self.scroll:
+            if y + VSTEP < self.scroll:
                 continue
 
             self.canvas.create_text(x, y - self.scroll, text=c, font=font_, anchor="nw")
-            if self.max_scroll != 0:
-                y0 = self.scroll / self.max_scroll * (self.HEIGHT - self.scroll_bar_height)
-                self.canvas.create_rectangle(self.scroll_bar_x0,
+            if self.layout.max_scroll != 0:
+                y0 = self.scroll / self.layout.max_scroll * (HEIGHT - self.layout.scroll_bar_height)
+                self.canvas.create_rectangle(self.layout.scroll_bar_x0,
                                              y0,
-                                             self.scroll_bar_x1,
-                                             y0 + self.scroll_bar_height,
+                                             self.layout.scroll_bar_x1,
+                                             y0 + self.layout.scroll_bar_height,
                                              fill="red")
 
 
@@ -300,10 +309,10 @@ def lex(body: str) -> list:
         out.append(Text(buffer))
     return out
 
-    for entity, value in ENTITIES.items():
-        result = result.replace(entity, value)
+    # for entity, value in ENTITIES.items():
+        # result = result.replace(entity, value)
     # print(result)
-    return result
+    # return result
 
 
 def show_source(body: str):
