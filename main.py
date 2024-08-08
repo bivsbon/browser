@@ -28,11 +28,14 @@ class Tag:
 
 class Layout:
     def __init__(self, tokens):
+        print("Init", tokens)
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
         self.weight = "normal"
         self.style = "roman"
+        self.size = 12
+        self.line = []
 
         for tok in tokens:
             self.token(tok)
@@ -44,22 +47,28 @@ class Layout:
 
     def word(self, word):
         font_ = tkinter.font.Font(
-            size=16,
+            size=self.size,
             weight=self.weight,
             slant=self.style,
         )
         w = font_.measure(word)
 
+        # Break to new line
         if self.cursor_x + w > WIDTH - HSTEP:
             self.cursor_y += font_.metrics("linespace") * 1.25
             self.cursor_x = HSTEP
 
-        self.display_list.append((self.cursor_x, self.cursor_y, word, font_))
+        self.line.append((self.cursor_x, word, font_))
+        # self.display_list.append((self.cursor_x, self.cursor_y, word, font_))
         self.cursor_x += w + font_.measure(" ")
 
-        if self.cursor_x >= WIDTH - HSTEP:
-            self.cursor_y += VSTEP
-            self.cursor_x = HSTEP
+        if self.cursor_x + w > WIDTH - HSTEP:
+            self.flush()
+        print(self.display_list)
+
+        # if self.cursor_x >= WIDTH - HSTEP:
+        #     self.cursor_y += VSTEP
+        #     self.cursor_x = HSTEP
 
     def token(self, tok):
         if isinstance(tok, Text):
@@ -73,6 +82,35 @@ class Layout:
             self.weight = "bold"
         elif tok.tag == "/b":
             self.weight = "normal"
+        elif tok.tag == "small":
+            self.size -= 2
+        elif tok.tag == "/small":
+            self.size += 2
+        elif tok.tag == "big":
+            self.size += 4
+        elif tok.tag == "/big":
+            self.size -= 4
+
+    def flush(self):
+        if not self.line:
+            return
+
+        # Find the tallest word
+        metrics = [font_.metrics() for x, word, font_ in self.line]
+        max_ascent = max([metric["ascent"] for metric in metrics])
+
+        # Calculate baseline based on tallest word than place each word relative to that line
+        baseline = self.cursor_y + 1.25 * max_ascent
+        for x, word, font_ in self.line:
+            y = baseline - font_.metrics("ascent")
+            self.display_list.append((x, y, word, font_))
+
+        # Move cursor_y far enough down below baseline to account for the deepest descender
+        max_descent = max([metric["descent"] for metric in metrics])
+        self.cursor_y = baseline + 1.25 * max_descent
+
+        self.cursor_x = HSTEP
+        self.line = []
 
 
 class URL:
@@ -243,6 +281,7 @@ class Browser:
         global WIDTH, HEIGHT
         WIDTH = e.width
         HEIGHT = e.height
+        print("Calling layout resize..")
         self.layout = Layout(self.tokens)
         self.display_list = self.layout.display_list
         self.draw()
@@ -268,6 +307,7 @@ class Browser:
     def load(self, url: URL):
         body = url.request()
         self.tokens = lex(body)
+        print("Calling layout..")
         self.layout = Layout(self.tokens)
         self.display_list = self.layout.display_list
         self.draw()
@@ -332,6 +372,8 @@ def load(url: URL):
 if __name__ == "__main__":
     import sys
 
-    Browser().load(URL(sys.argv[1], 0))
+    uri = "data:text/html,<b><i>Hello</i></b> <small>small text</small>"
+
+    Browser().load(URL(uri, 0))
     tkinter.mainloop()
     # load(URL(sys.argv[1], 0))
