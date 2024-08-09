@@ -10,6 +10,7 @@ ENTITIES = {
 }
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
+FONTS = {}
 
 
 class URLMalformedException(Exception):
@@ -47,28 +48,15 @@ class Layout:
         self.flush()
 
     def word(self, word):
-        font_ = tkinter.font.Font(
-            size=self.size,
-            weight=self.weight,
-            slant=self.style,
-        )
+        print(word, end=" ")
+        font_ = get_font(self.size, self.weight, self.style)
         w = font_.measure(word)
-
-        # Break to new line
-        if self.cursor_x + w > WIDTH - HSTEP:
-            self.cursor_y += font_.metrics("linespace") * 1.25
-            self.cursor_x = HSTEP
-
-        self.line.append((self.cursor_x, word, font_))
-        # self.display_list.append((self.cursor_x, self.cursor_y, word, font_))
-        self.cursor_x += w + font_.measure(" ")
 
         if self.cursor_x + w > WIDTH - HSTEP:
             self.flush()
 
-        # if self.cursor_x >= WIDTH - HSTEP:
-        #     self.cursor_y += VSTEP
-        #     self.cursor_x = HSTEP
+        self.line.append((self.cursor_x, word, font_))
+        self.cursor_x += w + font_.measure(" ")
 
     def token(self, tok):
         if isinstance(tok, Text):
@@ -90,10 +78,23 @@ class Layout:
             self.size += 4
         elif tok.tag == "/big":
             self.size -= 4
+        elif tok.tag == "br":
+            self.flush()
+        elif tok.tag == "/p":
+            self.flush()
+            self.cursor_y += VSTEP
+        elif tok.tag == "/h1":
+            self.flush(center=True)
+            self.cursor_y += VSTEP
 
-    def flush(self):
+    def flush(self, center=False):
         if not self.line:
             return
+
+        if center:
+            center_offset = (WIDTH - HSTEP - self.cursor_x) / 2
+        else:
+            center_offset = 0
 
         # Find the tallest word
         metrics = [font_.metrics() for x, word, font_ in self.line]
@@ -103,7 +104,7 @@ class Layout:
         baseline = self.cursor_y + 1.25 * max_ascent
         for x, word, font_ in self.line:
             y = baseline - font_.metrics("ascent")
-            self.display_list.append((x, y, word, font_))
+            self.display_list.append((x + center_offset, y, word, font_))
 
         # Move cursor_y far enough down below baseline to account for the deepest descender
         max_descent = max([metric["descent"] for metric in metrics])
@@ -279,13 +280,12 @@ class Browser:
     def resize(self, e: tkinter.Event):
         global WIDTH, HEIGHT
 
-        if e.width != 1 and e.height != 1:
-            if WIDTH != e.width or HEIGHT != e.height:
-                WIDTH = e.width
-                HEIGHT = e.height
-                self.layout = Layout(self.tokens)
-                self.display_list = self.layout.display_list
-                self.draw()
+        if WIDTH != e.width or HEIGHT != e.height:
+            WIDTH = e.width
+            HEIGHT = e.height
+            self.layout = Layout(self.tokens)
+            self.display_list = self.layout.display_list
+            self.draw()
 
     def scrolldown(self, e, scroll_step=SCROLL_STEP):
         self.scroll += scroll_step
@@ -369,11 +369,21 @@ def load(url: URL):
         print(lex(body))
 
 
+def get_font(size, weight, style):
+    key = (size, weight, style)
+    if key not in FONTS:
+        font_ = tkinter.font.Font(size=size, weight=weight, slant=style)
+        label = tkinter.Label(font=font_)
+        FONTS[key] = (font_, label)
+    return FONTS[key][0]
+
+
 if __name__ == "__main__":
     import sys
 
-    uri = "data:text/html,<b><i>Hello</i></b> <small>small text</small>"
-    uri = "https://browser.engineering/examples/example3-sizes.html"
+    uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
+    # uri = "https://browser.engineering/examples/example3-sizes.html"
+    uri = "https://browser.engineering/text.html"
 
     Browser().load(URL(uri, 0))
     tkinter.mainloop()
