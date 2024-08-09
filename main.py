@@ -28,7 +28,6 @@ class Tag:
 
 class Layout:
     def __init__(self, tokens):
-        print("Init", tokens)
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -44,6 +43,8 @@ class Layout:
         self.scroll_bar_x0 = WIDTH - HSTEP + 2
         self.scroll_bar_x1 = WIDTH - 2
         self.scroll_bar_height = HEIGHT / (self.max_scroll + HEIGHT) * HEIGHT
+
+        self.flush()
 
     def word(self, word):
         font_ = tkinter.font.Font(
@@ -64,7 +65,6 @@ class Layout:
 
         if self.cursor_x + w > WIDTH - HSTEP:
             self.flush()
-        print(self.display_list)
 
         # if self.cursor_x >= WIDTH - HSTEP:
         #     self.cursor_y += VSTEP
@@ -118,7 +118,6 @@ class URL:
     _MAX_REDIRECTS = 2
 
     def __init__(self, url: str, n_redirects: int):
-        print("Redirect =", n_redirects)
         self.scheme = self._get_scheme(url)
         self.n_redirects = n_redirects
         if not self.scheme:
@@ -279,12 +278,14 @@ class Browser:
 
     def resize(self, e: tkinter.Event):
         global WIDTH, HEIGHT
-        WIDTH = e.width
-        HEIGHT = e.height
-        print("Calling layout resize..")
-        self.layout = Layout(self.tokens)
-        self.display_list = self.layout.display_list
-        self.draw()
+
+        if e.width != 1 and e.height != 1:
+            if WIDTH != e.width or HEIGHT != e.height:
+                WIDTH = e.width
+                HEIGHT = e.height
+                self.layout = Layout(self.tokens)
+                self.display_list = self.layout.display_list
+                self.draw()
 
     def scrolldown(self, e, scroll_step=SCROLL_STEP):
         self.scroll += scroll_step
@@ -307,7 +308,6 @@ class Browser:
     def load(self, url: URL):
         body = url.request()
         self.tokens = lex(body)
-        print("Calling layout..")
         self.layout = Layout(self.tokens)
         self.display_list = self.layout.display_list
         self.draw()
@@ -373,6 +373,7 @@ if __name__ == "__main__":
     import sys
 
     uri = "data:text/html,<b><i>Hello</i></b> <small>small text</small>"
+    uri = "https://browser.engineering/examples/example3-sizes.html"
 
     Browser().load(URL(uri, 0))
     tkinter.mainloop()
