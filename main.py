@@ -36,6 +36,7 @@ class Layout:
         self.style = "roman"
         self.size = 12
         self.line = []
+        self.sup = False
 
         for tok in tokens:
             self.token(tok)
@@ -48,14 +49,13 @@ class Layout:
         self.flush()
 
     def word(self, word):
-        print(word, end=" ")
-        font_ = get_font(self.size, self.weight, self.style)
+        font_ = get_font(self.size if not self.sup else int(self.size/2), self.weight, self.style)
         w = font_.measure(word)
 
         if self.cursor_x + w > WIDTH - HSTEP:
             self.flush()
 
-        self.line.append((self.cursor_x, word, font_))
+        self.line.append((self.cursor_x, word, font_, self.sup))
         self.cursor_x += w + font_.measure(" ")
 
     def token(self, tok):
@@ -86,6 +86,10 @@ class Layout:
         elif tok.tag == "/h1":
             self.flush(center=True)
             self.cursor_y += VSTEP
+        elif tok.tag == "sup":
+            self.sup = True
+        elif tok.tag == "/sup":
+            self.sup = False
 
     def flush(self, center=False):
         if not self.line:
@@ -97,13 +101,16 @@ class Layout:
             center_offset = 0
 
         # Find the tallest word
-        metrics = [font_.metrics() for x, word, font_ in self.line]
+        metrics = [font_.metrics() for x, word, font_, sup in self.line]
         max_ascent = max([metric["ascent"] for metric in metrics])
 
         # Calculate baseline based on tallest word than place each word relative to that line
         baseline = self.cursor_y + 1.25 * max_ascent
-        for x, word, font_ in self.line:
-            y = baseline - font_.metrics("ascent")
+        for x, word, font_, sup in self.line:
+            if sup:
+                y = baseline - font_.metrics("ascent") * 2
+            else:
+                y = baseline - font_.metrics("ascent")
             self.display_list.append((x + center_offset, y, word, font_))
 
         # Move cursor_y far enough down below baseline to account for the deepest descender
@@ -381,9 +388,10 @@ def get_font(size, weight, style):
 if __name__ == "__main__":
     import sys
 
-    uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
+    # uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
+    uri = "data:text/html,abc<sup>def</sup>"
     # uri = "https://browser.engineering/examples/example3-sizes.html"
-    uri = "https://browser.engineering/text.html"
+    # uri = "https://browser.engineering/text.html"
 
     Browser().load(URL(uri, 0))
     tkinter.mainloop()
