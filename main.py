@@ -22,6 +22,9 @@ class HTMLParser:
         "base", "basefont", "bgsound", "noscript",
         "link", "meta", "title", "style", "script",
     ]
+    NO_NEST_TAG = [
+        "p", "li"
+    ]
 
     def __init__(self, body):
         self.body = body
@@ -46,7 +49,7 @@ class HTMLParser:
             self.add_text(text)
         return self.finish()
 
-    def add_text(self, text):
+    def add_text(self, text: str):
         if text.isspace():
             return
         self.implicit_tags(None)
@@ -54,7 +57,7 @@ class HTMLParser:
         node = Text(text, parent)
         parent.children.append(node)
 
-    def add_tag(self, tag):
+    def add_tag(self, tag: str):
         tag, attributes = self.get_attributes(tag)
         if tag.startswith("!"):
             return
@@ -62,9 +65,16 @@ class HTMLParser:
         if tag.startswith("/"):
             if len(self.unfinished) == 1:
                 return
-            node = self.unfinished.pop()
-            parent = self.unfinished[-1]
-            parent.children.append(node)
+            if tag[1:] in self.NO_NEST_TAG:
+                nodes = [self.unfinished.pop()]
+                while self.unfinished[-1].tag == tag[1:]:
+                    nodes.append(self.unfinished.pop())
+                parent = self.unfinished[-1]
+                parent.children += nodes
+            else:
+                node = self.unfinished.pop()
+                parent = self.unfinished[-1]
+                parent.children.append(node)
         elif tag in self.SELF_CLOSING_TAGS:
             parent = self.unfinished[-1]
             node = Element(tag, attributes, parent)
@@ -128,7 +138,7 @@ class Text:
 
 
 class Element:
-    def __init__(self, tag, attributes, parent):
+    def __init__(self, tag: str, attributes: dict, parent):
         self.tag = tag
         self.attributes = attributes
         self.children = []
@@ -515,13 +525,14 @@ if __name__ == "__main__":
     import sys
 
     # uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
-    # uri = "data:text/html,abc<sup>def&lt;</sup>"
+    uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
     # uri = "https://browser.engineering/examples/example3-sizes.html"
-    uri = "https://browser.engineering/text.html"
+    # uri = "https://browser.engineering/text.html"
+    # uri = "file://browser.engineering/text.html"
 
     Browser().load(URL(uri, 0))
-    # body = URL("https://browser.engineering/html.html", 0).request()
+    tkinter.mainloop()
+    # body = URL(uri, 0).request()
     # tree = HTMLParser(body).parse()
     # print_tree(tree, 0)
-    tkinter.mainloop()
     # load(URL(sys.argv[1], 0))
