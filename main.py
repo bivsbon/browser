@@ -25,26 +25,46 @@ class HTMLParser:
     NO_NEST_TAG = [
         "p", "li"
     ]
+    VALID_FOLLOWER_SCRIPT_TAG = [" ", "\t", "\v", "\r", ">"]
 
     def __init__(self, body):
         self.body = body
         self.unfinished = []
 
+    def find_next_script_close_tag(self, i: int, b: str) -> (int, int):
+        while True:
+            potential = b.find("</script", i)
+            if potential == -1:
+                return -1, -1
+            if b[potential + 8] in self.VALID_FOLLOWER_SCRIPT_TAG:
+                return potential, b.find(">", potential) + 1
+
     def parse(self):
         text = ""
         in_tag = False
-        for c in self.body:
-            if c == "<":
+        b = self.body
+        i = 0
+        while i < len(b):
+            if b[i] == "<":
                 in_tag = True
                 if text:
                     self.add_text(text)
                 text = ""
-            elif c == ">":
+            elif b[i] == ">":
+                if text == "script":
+                    s, e = self.find_next_script_close_tag(i, b)
+                    self.add_tag("script")
+                    self.add_text(b[i+1:s])
+                    self.add_tag(b[s+1:e-1])
+                    i = e
+                    text = ""
+                else:
+                    self.add_tag(text)
+                    text = ""
                 in_tag = False
-                self.add_tag(text)
-                text = ""
             else:
-                text += c
+                text += b[i]
+            i += 1
         if not in_tag and text:
             self.add_text(text)
         return self.finish()
@@ -525,14 +545,15 @@ if __name__ == "__main__":
     import sys
 
     # uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
-    uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
+    # uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
     # uri = "https://browser.engineering/examples/example3-sizes.html"
     # uri = "https://browser.engineering/text.html"
     # uri = "file://browser.engineering/text.html"
+    uri = "file://index.html"
 
-    Browser().load(URL(uri, 0))
-    tkinter.mainloop()
-    # body = URL(uri, 0).request()
-    # tree = HTMLParser(body).parse()
-    # print_tree(tree, 0)
+    # Browser().load(URL(uri, 0))
+    # tkinter.mainloop()
+    body = URL(uri, 0).request()
+    tree = HTMLParser(body).parse()
+    print_tree(tree, 0)
     # load(URL(sys.argv[1], 0))

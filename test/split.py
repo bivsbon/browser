@@ -1,5 +1,2 @@
-s = '''aha abc
-lol'''
-print(s)
-print(s.split())
-print(["a"] + ["qwd", "qwdq"])
+s = "odiqwj abc  qwdwooiq"
+print(s[5:5])
