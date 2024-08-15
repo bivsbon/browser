@@ -100,9 +100,19 @@ class HTMLParser:
                 parent = self.unfinished[-1]
                 parent.children += nodes
             else:
+                # Check if the closing tag match
+                mismatch_tags = []
+                while self.unfinished[-1].tag != tag[1:]:
+                    mismatch_tags.append(self.unfinished[-1].tag)
+                    self.add_tag("/" + self.unfinished[-1].tag)
+
                 node = self.unfinished.pop()
                 parent = self.unfinished[-1]
                 parent.children.append(node)
+
+                # Reopen the mismatch tags
+                for tag in reversed(mismatch_tags):
+                    self.add_tag(tag)
         elif tag in self.SELF_CLOSING_TAGS:
             parent = self.unfinished[-1]
             node = Element(tag, attributes, parent)
@@ -241,11 +251,12 @@ class Layout:
 
     def recurse(self, tree):
         if isinstance(tree, Text):
+            prev_weight = self.weight
             if self.view_source:
                 self.weight = "bold"
             for word in tree.text.split():
                 self.word(word)
-            self.weight = "normal"
+            self.weight = prev_weight
         elif self.view_source:
             self.word(f"<{tree.tag}>")
             for child in tree.children:
@@ -565,9 +576,9 @@ if __name__ == "__main__":
     # uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
     # uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
     # uri = "https://browser.engineering/examples/example3-sizes.html"
-    uri = "https://browser.engineering/text.html"
+    # uri = "https://browser.engineering/text.html"
     # uri = "file://browser.engineering/text.html"
-    # uri = "file://index.html"
+    uri = "file://index.html"
     # uri = "view-source:https://browser.engineering/text.html"
 
     Browser().load(URL(uri, 0))
