@@ -13,22 +13,182 @@ HSTEP, VSTEP = 13, 18
 FONTS = {}
 
 
+class HTMLParser:
+    SELF_CLOSING_TAGS = [
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    ]
+    HEAD_TAGS = [
+        "base", "basefont", "bgsound", "noscript",
+        "link", "meta", "title", "style", "script",
+    ]
+    NO_NEST_TAG = [
+        "p", "li"
+    ]
+    VALID_FOLLOWER_SCRIPT_TAG = [" ", "\t", "\v", "\r", ">"]
+
+    def __init__(self, body):
+        self.body = body
+        self.unfinished = []
+
+    def find_next_script_close_tag(self, i: int, b: str) -> (int, int):
+        """
+        Find position of the next </script> tag
+        :param i: start position
+        :param b: the content of html page
+        :return: start and end position of next </script> tag
+        """
+        cursor = i
+        while True:
+            potential = b.find("</script", cursor)
+            if potential == -1:
+                return -1, -1
+            elif b[potential + 8] in self.VALID_FOLLOWER_SCRIPT_TAG:
+                return potential, b.find(">", potential) + 1
+            cursor = potential+1
+
+    def parse(self):
+        text = ""
+        in_tag = False
+        b = self.body
+        i = 0
+        while i < len(b):
+            if b[i] == "<":
+                in_tag = True
+                if text:
+                    self.add_text(text)
+                text = ""
+            elif b[i] == ">":
+                if text == "script":
+                    s, e = self.find_next_script_close_tag(i, b)
+                    self.add_tag("script")
+                    self.add_text(b[i+1:s])
+                    self.add_tag(b[s+1:e-1])
+                    i = e
+                    text = ""
+                else:
+                    self.add_tag(text)
+                    text = ""
+                in_tag = False
+            else:
+                text += b[i]
+            i += 1
+        if not in_tag and text:
+            self.add_text(text)
+        return self.finish()
+
+    def add_text(self, text: str):
+        if text.isspace():
+            return
+        self.implicit_tags(None)
+        parent = self.unfinished[-1]
+        node = Text(text, parent)
+        parent.children.append(node)
+
+    def add_tag(self, tag: str):
+        tag, attributes = self.get_attributes(tag)
+        if tag.startswith("!"):
+            return
+        self.implicit_tags(tag)
+        if tag.startswith("/"):
+            if len(self.unfinished) == 1:
+                return
+            if tag[1:] in self.NO_NEST_TAG:
+                nodes = [self.unfinished.pop()]
+                while self.unfinished[-1].tag == tag[1:]:
+                    nodes.append(self.unfinished.pop())
+                parent = self.unfinished[-1]
+                parent.children += nodes
+            else:
+                # Check if the closing tag match
+                mismatch_tags = []
+                while self.unfinished[-1].tag != tag[1:]:
+                    mismatch_tags.append(self.unfinished[-1].tag)
+                    self.add_tag("/" + self.unfinished[-1].tag)
+
+                node = self.unfinished.pop()
+                parent = self.unfinished[-1]
+                parent.children.append(node)
+
+                # Reopen the mismatch tags
+                for tag in reversed(mismatch_tags):
+                    self.add_tag(tag)
+        elif tag in self.SELF_CLOSING_TAGS:
+            parent = self.unfinished[-1]
+            node = Element(tag, attributes, parent)
+            parent.children.append(node)
+        else:
+            parent = self.unfinished[-1] if self.unfinished else None
+            node = Element(tag, attributes, parent)
+            self.unfinished.append(node)
+
+    def finish(self):
+        if not self.unfinished:
+            self.implicit_tags(None)
+        while len(self.unfinished) > 1:
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        return self.unfinished.pop()
+
+    def get_attributes(self, text: str):
+        parts = text.split()
+        tag = parts[0].casefold()
+        attributes = {}
+        for attrpair in parts[1:]:
+            if "=" in attrpair:
+                key, value = attrpair.split("=", 1)
+                if len(value) > 2 and value[0] in ["'", "\""]:
+                    value = value[1:-1]
+                attributes[key.casefold()] = value
+            else:
+                attributes[attrpair.casefold()] = ""
+        return tag, attributes
+
+    def implicit_tags(self, tag):
+        while True:
+            open_tags = [node.tag for node in self.unfinished]
+            if open_tags == [] and tag != "html":
+                self.add_tag("html")
+            elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
+                if tag in self.HEAD_TAGS:
+                    self.add_tag("head")
+                else:
+                    self.add_tag("body")
+            elif open_tags == ["html", "head"] and tag not in ["/head"] + self.HEAD_TAGS:
+                self.add_tag("/head")
+            else:
+                break
+
+
 class URLMalformedException(Exception):
     pass
 
 
 class Text:
-    def __init__(self, text):
+    def __init__(self, text, parent):
         self.text = text
+        self.children = []
+        self.parent = parent
+
+    def __repr__(self):
+        return repr(self.text)
 
 
-class Tag:
-    def __init__(self, tag):
+class Element:
+    def __init__(self, tag: str, attributes: dict, parent):
         self.tag = tag
+        self.attributes = attributes
+        self.children = []
+        self.parent = parent
+
+    def __repr__(self):
+        return "<" + self.tag + ">"
 
 
 class Layout:
-    def __init__(self, tokens):
+    def __init__(self, nodes, view_source=False):
+        self.view_source = view_source
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -38,10 +198,9 @@ class Layout:
         self.line = []
         self.sup = False
 
-        for tok in tokens:
-            self.token(tok)
+        self.recurse(nodes)
 
-        self.max_scroll = 0 if self.cursor_y - HEIGHT < 0 else self.cursor_y - HEIGHT
+        self.max_scroll = 0 if self.cursor_y - HEIGHT + VSTEP*1.25 < 0 else self.cursor_y - HEIGHT + VSTEP*1.25
         self.scroll_bar_x0 = WIDTH - HSTEP + 2
         self.scroll_bar_x1 = WIDTH - 2
         self.scroll_bar_height = HEIGHT / (self.max_scroll + HEIGHT) * HEIGHT
@@ -58,38 +217,55 @@ class Layout:
         self.line.append((self.cursor_x, word, font_, self.sup))
         self.cursor_x += w + font_.measure(" ")
 
-    def token(self, tok):
-        if isinstance(tok, Text):
-            for word in tok.text.split():
-                self.word(word)
-        elif tok.tag == "i":
+    def open_tag(self, tag):
+        if tag == "i":
             self.style = "italic"
-        elif tok.tag == "/i":
-            self.style = "roman"
-        elif tok.tag == "b":
+        elif tag == "b":
             self.weight = "bold"
-        elif tok.tag == "/b":
-            self.weight = "normal"
-        elif tok.tag == "small":
+        elif tag == "small":
             self.size -= 2
-        elif tok.tag == "/small":
-            self.size += 2
-        elif tok.tag == "big":
+        elif tag == "big":
             self.size += 4
-        elif tok.tag == "/big":
-            self.size -= 4
-        elif tok.tag == "br":
+        elif tag == "sup":
+            self.sup = True
+        elif tag == "br":
             self.flush()
-        elif tok.tag == "/p":
+
+    def close_tag(self, tag):
+        if tag == "i":
+            self.style = "roman"
+        elif tag == "b":
+            self.weight = "normal"
+        elif tag == "small":
+            self.size += 2
+        elif tag == "big":
+            self.size -= 4
+        elif tag == "sup":
+            self.sup = False
+        elif tag == "p":
             self.flush()
             self.cursor_y += VSTEP
-        elif tok.tag == "/h1":
+        elif tag == "h1":
             self.flush(center=True)
             self.cursor_y += VSTEP
-        elif tok.tag == "sup":
-            self.sup = True
-        elif tok.tag == "/sup":
-            self.sup = False
+
+    def recurse(self, tree):
+        if isinstance(tree, Text):
+            prev_weight = self.weight
+            if self.view_source:
+                self.weight = "bold"
+            for word in tree.text.split():
+                self.word(word)
+            self.weight = prev_weight
+        elif self.view_source:
+            self.word(f"<{tree.tag}>")
+            for child in tree.children:
+                self.recurse(child)
+        else:
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)
 
     def flush(self, center=False):
         if not self.line:
@@ -266,8 +442,9 @@ class Browser:
     SCROLL_STEP = 100
 
     layout = None
-    tokens = []
     display_list = []
+    nodes = None
+    view_source_enable = False
 
     scroll = 0
 
@@ -290,7 +467,7 @@ class Browser:
         if WIDTH != e.width or HEIGHT != e.height:
             WIDTH = e.width
             HEIGHT = e.height
-            self.layout = Layout(self.tokens)
+            self.layout = Layout(self.nodes, view_source=self.view_source_enable)
             self.display_list = self.layout.display_list
             self.draw()
 
@@ -314,8 +491,10 @@ class Browser:
 
     def load(self, url: URL):
         body = url.request()
-        self.tokens = lex(body)
-        self.layout = Layout(self.tokens)
+        self.view_source_enable = url.scheme == "view-source"
+        self.nodes = HTMLParser(body).parse()
+
+        self.layout = Layout(self.nodes, view_source=self.view_source_enable)
         self.display_list = self.layout.display_list
         self.draw()
 
@@ -348,7 +527,7 @@ def lex(body: str) -> list:
             buffer = ""
         elif c == ">":
             in_tag = False
-            out.append(Tag(buffer))
+            out.append(Element(buffer))
             buffer = ""
         else:
             buffer += c
@@ -385,14 +564,26 @@ def get_font(size, weight, style):
     return FONTS[key][0]
 
 
+def print_tree(node, indent=0):
+    print(" " * indent, node)
+    for child in node.children:
+        print_tree(child, indent + 2)
+
+
 if __name__ == "__main__":
     import sys
 
     # uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
-    uri = "data:text/html,abc<sup>def</sup>"
+    # uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
     # uri = "https://browser.engineering/examples/example3-sizes.html"
     # uri = "https://browser.engineering/text.html"
+    # uri = "file://browser.engineering/text.html"
+    uri = "file://index.html"
+    # uri = "view-source:https://browser.engineering/text.html"
 
     Browser().load(URL(uri, 0))
     tkinter.mainloop()
+    # body = URL(uri, 0).request()
+    # tree = HTMLParser(body).parse()
+    # print_tree(tree, 0)
     # load(URL(sys.argv[1], 0))
