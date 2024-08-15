@@ -32,12 +32,20 @@ class HTMLParser:
         self.unfinished = []
 
     def find_next_script_close_tag(self, i: int, b: str) -> (int, int):
+        """
+        Find position of the next </script> tag
+        :param i: start position
+        :param b: the content of html page
+        :return: start and end position of next </script> tag
+        """
+        cursor = i
         while True:
-            potential = b.find("</script", i)
+            potential = b.find("</script", cursor)
             if potential == -1:
                 return -1, -1
-            if b[potential + 8] in self.VALID_FOLLOWER_SCRIPT_TAG:
+            elif b[potential + 8] in self.VALID_FOLLOWER_SCRIPT_TAG:
                 return potential, b.find(">", potential) + 1
+            cursor = potential+1
 
     def parse(self):
         text = ""
@@ -113,7 +121,7 @@ class HTMLParser:
             parent.children.append(node)
         return self.unfinished.pop()
 
-    def get_attributes(self, text):
+    def get_attributes(self, text: str):
         parts = text.split()
         tag = parts[0].casefold()
         attributes = {}
@@ -169,7 +177,8 @@ class Element:
 
 
 class Layout:
-    def __init__(self, nodes):
+    def __init__(self, nodes, view_source=False):
+        self.view_source = view_source
         self.display_list = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -181,7 +190,7 @@ class Layout:
 
         self.recurse(nodes)
 
-        self.max_scroll = 0 if self.cursor_y - HEIGHT < 0 else self.cursor_y - HEIGHT
+        self.max_scroll = 0 if self.cursor_y - HEIGHT + VSTEP*1.25 < 0 else self.cursor_y - HEIGHT + VSTEP*1.25
         self.scroll_bar_x0 = WIDTH - HSTEP + 2
         self.scroll_bar_x1 = WIDTH - 2
         self.scroll_bar_height = HEIGHT / (self.max_scroll + HEIGHT) * HEIGHT
@@ -204,9 +213,9 @@ class Layout:
         elif tag == "b":
             self.weight = "bold"
         elif tag == "small":
-            self.weight -= 2
+            self.size -= 2
         elif tag == "big":
-            self.weight += 4
+            self.size += 4
         elif tag == "sup":
             self.sup = True
         elif tag == "br":
@@ -218,9 +227,9 @@ class Layout:
         elif tag == "b":
             self.weight = "normal"
         elif tag == "small":
-            self.weight += 2
+            self.size += 2
         elif tag == "big":
-            self.weight -= 4
+            self.size -= 4
         elif tag == "sup":
             self.sup = False
         elif tag == "p":
@@ -232,8 +241,15 @@ class Layout:
 
     def recurse(self, tree):
         if isinstance(tree, Text):
+            if self.view_source:
+                self.weight = "bold"
             for word in tree.text.split():
                 self.word(word)
+            self.weight = "normal"
+        elif self.view_source:
+            self.word(f"<{tree.tag}>")
+            for child in tree.children:
+                self.recurse(child)
         else:
             self.open_tag(tree.tag)
             for child in tree.children:
@@ -417,6 +433,7 @@ class Browser:
     layout = None
     display_list = []
     nodes = None
+    view_source_enable = False
 
     scroll = 0
 
@@ -439,7 +456,7 @@ class Browser:
         if WIDTH != e.width or HEIGHT != e.height:
             WIDTH = e.width
             HEIGHT = e.height
-            self.layout = Layout(self.nodes)
+            self.layout = Layout(self.nodes, view_source=self.view_source_enable)
             self.display_list = self.layout.display_list
             self.draw()
 
@@ -463,9 +480,10 @@ class Browser:
 
     def load(self, url: URL):
         body = url.request()
+        self.view_source_enable = url.scheme == "view-source"
         self.nodes = HTMLParser(body).parse()
 
-        self.layout = Layout(self.nodes)
+        self.layout = Layout(self.nodes, view_source=self.view_source_enable)
         self.display_list = self.layout.display_list
         self.draw()
 
@@ -547,13 +565,14 @@ if __name__ == "__main__":
     # uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
     # uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
     # uri = "https://browser.engineering/examples/example3-sizes.html"
-    # uri = "https://browser.engineering/text.html"
+    uri = "https://browser.engineering/text.html"
     # uri = "file://browser.engineering/text.html"
-    uri = "file://index.html"
+    # uri = "file://index.html"
+    # uri = "view-source:https://browser.engineering/text.html"
 
-    # Browser().load(URL(uri, 0))
-    # tkinter.mainloop()
-    body = URL(uri, 0).request()
-    tree = HTMLParser(body).parse()
-    print_tree(tree, 0)
+    Browser().load(URL(uri, 0))
+    tkinter.mainloop()
+    # body = URL(uri, 0).request()
+    # tree = HTMLParser(body).parse()
+    # print_tree(tree, 0)
     # load(URL(sys.argv[1], 0))
