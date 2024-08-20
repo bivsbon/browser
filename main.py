@@ -8,6 +8,14 @@ ENTITIES = {
     "&lt;": "<",
     "&gt;": ">"
 }
+BLOCK_ELEMENTS = [
+    "html", "body", "article", "section", "nav", "aside",
+    "h1", "h2", "h3", "h4", "h5", "h6", "hgroup", "header",
+    "footer", "address", "p", "hr", "pre", "blockquote",
+    "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure",
+    "figcaption", "main", "div", "table", "form", "fieldset",
+    "legend", "details", "summary"
+]
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
 FONTS = {}
@@ -186,8 +194,73 @@ class Element:
         return "<" + self.tag + ">"
 
 
-class Layout:
-    def __init__(self, nodes, view_source=False):
+class DrawText:
+    def __init__(self, x1, y1, text, font):
+        self.top = y1
+        self.left = x1
+        self.text = text
+        self.font = font
+        self.bottom = y1 + font.metrics("linespace")
+
+    def execute(self, scroll, canvas):
+        canvas.create_text(
+            self.left, self.top - scroll,
+            text=self.text,
+            font=self.font,
+            anchor='nw')
+
+
+class DrawRect:
+    def __init__(self, x1, y1, x2, y2, color):
+        self.top = y1
+        self.left = x1
+        self.bottom = y2
+        self.right = x2
+        self.color = color
+
+    def execute(self, scroll, canvas):
+        canvas.create_rectangle(
+            self.left, self.top - scroll,
+            self.right, self.bottom - scroll,
+            width=0,
+            fill=self.color)
+
+
+class DocumentLayout:
+    def __init__(self, node):
+        self.node = node
+        self.parent = None
+        self.children = []
+
+        self.x = None
+        self.y = None
+        self.width = None
+        self.height = None
+        self.max_scroll = None
+        self.scroll_bar_x0 = None
+        self.scroll_bar_x1 = None
+        self.scroll_bar_height = None
+
+    def layout(self):
+        self.width = WIDTH - 2 * HSTEP
+        self.x = HSTEP
+        self.y = VSTEP
+
+        child = BlockLayout(self.node, self, None)
+        self.children.append(child)
+        child.layout()
+        self.height = child.height
+        self.max_scroll = 0 if self.height - HEIGHT + 2*VSTEP < 0 else self.height - HEIGHT + 2*VSTEP
+        self.scroll_bar_x0 = WIDTH - HSTEP + 2
+        self.scroll_bar_x1 = WIDTH - 2
+        self.scroll_bar_height = HEIGHT / (self.max_scroll + HEIGHT) * HEIGHT
+
+    def paint(self):
+        return []
+
+
+class BlockLayout:
+    def __init__(self, node, parent, previous, view_source=False):
         self.view_source = view_source
         self.display_list = []
         self.cursor_x = HSTEP
@@ -198,20 +271,74 @@ class Layout:
         self.line = []
         self.sup = False
 
-        self.recurse(nodes)
+        # self.recurse(node)
 
-        self.max_scroll = 0 if self.cursor_y - HEIGHT + VSTEP*1.25 < 0 else self.cursor_y - HEIGHT + VSTEP*1.25
-        self.scroll_bar_x0 = WIDTH - HSTEP + 2
-        self.scroll_bar_x1 = WIDTH - 2
-        self.scroll_bar_height = HEIGHT / (self.max_scroll + HEIGHT) * HEIGHT
+        self.node = node
+        self.parent = parent
+        self.previous = previous
+        self.children = []
+
+        self.x = None
+        self.y = None
+        self.width = None
+        self.height = None
+
+        # self.max_scroll = 0 if self.cursor_y - HEIGHT + VSTEP*1.25 < 0 else self.cursor_y - HEIGHT + VSTEP*1.25
+        # self.scroll_bar_x0 = WIDTH - HSTEP + 2
+        # self.scroll_bar_x1 = WIDTH - 2
+        # self.scroll_bar_height = HEIGHT / (self.max_scroll + HEIGHT) * HEIGHT
 
         self.flush()
+
+    def layout_mode(self):
+        if isinstance(self.node, Text):
+            return "inline"
+        elif any([isinstance(child, Element) and child.tag in BLOCK_ELEMENTS for child in self.node.children]):
+            return "block"
+        elif self.node.children:
+            return "inline"
+        else:
+            return "block"
+
+    def layout(self):
+        self.x = self.parent.x
+        self.width = self.parent.width
+
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+        mode = self.layout_mode()
+        if mode == "block":
+            previous = None
+            for child in self.node.children:
+                next = BlockLayout(child, self, previous)
+                self.children.append(next)
+                previous = next
+        else:
+            self.cursor_x = 0
+            self.cursor_y = 0
+            self.weight = "normal"
+            self.style = "roman"
+            self.size = 12
+
+            self.line = []
+            self.recurse(self.node)
+            self.flush()
+        for child in self.children:
+            child.layout()
+
+        if mode == "block":
+            self.height = sum([
+                child.height for child in self.children])
+        else:
+            self.height = self.cursor_y
 
     def word(self, word):
         font_ = get_font(self.size if not self.sup else int(self.size/2), self.weight, self.style)
         w = font_.measure(word)
 
-        if self.cursor_x + w > WIDTH - HSTEP:
+        if self.cursor_x + w > self.width:
             self.flush()
 
         self.line.append((self.cursor_x, word, font_, self.sup))
@@ -282,19 +409,31 @@ class Layout:
 
         # Calculate baseline based on tallest word than place each word relative to that line
         baseline = self.cursor_y + 1.25 * max_ascent
-        for x, word, font_, sup in self.line:
+        for rel_x, word, font_, sup in self.line:
+            x = self.x + rel_x
             if sup:
-                y = baseline - font_.metrics("ascent") * 2
+                y = self.y + baseline - font_.metrics("ascent") * 2
             else:
-                y = baseline - font_.metrics("ascent")
+                y = self.y + baseline - font_.metrics("ascent")
             self.display_list.append((x + center_offset, y, word, font_))
 
         # Move cursor_y far enough down below baseline to account for the deepest descender
         max_descent = max([metric["descent"] for metric in metrics])
         self.cursor_y = baseline + 1.25 * max_descent
 
-        self.cursor_x = HSTEP
+        self.cursor_x = 0
         self.line = []
+
+    def paint(self):
+        cmds = []
+        if isinstance(self.node, Element) and self.node.tag == "pre":
+            x2, y2 = self.x + self.width, self.y + self.height
+            rect = DrawRect(self.x, self.y, x2, y2, "gray")
+            cmds.append(rect)
+        if self.layout_mode() == "inline":
+            for x, y, word, font_ in self.display_list:
+                cmds.append(DrawText(x, y, word, font_))
+        return cmds
 
 
 class URL:
@@ -445,6 +584,7 @@ class Browser:
     display_list = []
     nodes = None
     view_source_enable = False
+    document = None
 
     scroll = 0
 
@@ -467,14 +607,17 @@ class Browser:
         if WIDTH != e.width or HEIGHT != e.height:
             WIDTH = e.width
             HEIGHT = e.height
-            self.layout = Layout(self.nodes, view_source=self.view_source_enable)
-            self.display_list = self.layout.display_list
+            self.document = DocumentLayout(self.nodes)
+            self.document.layout()
+            self.display_list = []
+            paint_tree(self.document, self.display_list)
+            # self.display_list = self.layout.display_list
             self.draw()
 
     def scrolldown(self, e, scroll_step=SCROLL_STEP):
         self.scroll += scroll_step
-        if self.scroll > self.layout.max_scroll:
-            self.scroll = self.layout.max_scroll
+        if self.scroll > self.document.max_scroll:
+            self.scroll = self.document.max_scroll
         self.draw()
 
     def scrollup(self, e, scroll_step=SCROLL_STEP):
@@ -493,27 +636,41 @@ class Browser:
         body = url.request()
         self.view_source_enable = url.scheme == "view-source"
         self.nodes = HTMLParser(body).parse()
+        self.document = DocumentLayout(self.nodes)
+        self.document.layout()
+        self.display_list = []
+        paint_tree(self.document, self.display_list)
 
-        self.layout = Layout(self.nodes, view_source=self.view_source_enable)
-        self.display_list = self.layout.display_list
+        # self.layout = BlockLayout(self.nodes, view_source=self.view_source_enable)
+        # self.display_list = self.layout.display_list
         self.draw()
 
     def draw(self):
         self.canvas.delete("all")
-        for x, y, c, font_ in self.display_list:
-            if y > self.scroll + HEIGHT:
-                continue
-            if y + VSTEP < self.scroll:
-                continue
 
-            self.canvas.create_text(x, y - self.scroll, text=c, font=font_, anchor="nw")
-            if self.layout.max_scroll != 0:
-                y0 = self.scroll / self.layout.max_scroll * (HEIGHT - self.layout.scroll_bar_height)
-                self.canvas.create_rectangle(self.layout.scroll_bar_x0,
-                                             y0,
-                                             self.layout.scroll_bar_x1,
-                                             y0 + self.layout.scroll_bar_height,
-                                             fill="red")
+        for cmd in self.display_list:
+            if cmd.top > self.scroll + HEIGHT:
+                continue
+            if cmd.bottom < self.scroll:
+                continue
+            cmd.execute(self.scroll, self.canvas)
+
+        # for x, y, c, font_ in self.display_list:
+        #     if y > self.scroll + HEIGHT:
+        #         continue
+        #     if y + VSTEP < self.scroll:
+        #         continue
+        #
+        #     self.canvas.create_text(x, y - self.scroll, text=c, font=font_, anchor="nw")
+
+        # Draw scrollbar
+        if self.document.max_scroll != 0:
+            y0 = self.scroll / self.document.max_scroll * (HEIGHT - self.document.scroll_bar_height)
+            self.canvas.create_rectangle(self.document.scroll_bar_x0,
+                                         y0,
+                                         self.document.scroll_bar_x1,
+                                         y0 + self.document.scroll_bar_height,
+                                         fill="red")
 
 
 def lex(body: str) -> list:
@@ -570,15 +727,22 @@ def print_tree(node, indent=0):
         print_tree(child, indent + 2)
 
 
+def paint_tree(layout_object, display_list: list):
+    display_list.extend(layout_object.paint())
+
+    for child in layout_object.children:
+        paint_tree(child, display_list)
+
+
 if __name__ == "__main__":
     import sys
 
     # uri = "data:text/html,<title>Formatting Text | Web Browser Engineering</title>\n\n</head>\n\n<body>\n\n\n<header>\n<h1 class=\"title\">Formatting Text</h1>\n<a href=\"https://twitter.com/browserbook\">Twitter</a> ·\n<a href=\"https://browserbook.substack.com/\">Blog</a> ·\n<a href=\"https://patreon.com/browserengineering\">Patreon</a> ·\n<a href=\"https://github.com/browserengineering/book/discussions\">Discussions</a>\n</header>\n\n<nav class=\"links\">\n  Chapter 3 of <a href=\"index.html\" title=\"Table of Contents\">Web Browser Engineering abc</a>"
     # uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
     # uri = "https://browser.engineering/examples/example3-sizes.html"
-    # uri = "https://browser.engineering/text.html"
+    uri = "https://browser.engineering/text.html"
     # uri = "file://browser.engineering/text.html"
-    uri = "file://index.html"
+    # uri = "file://index.html"
     # uri = "view-source:https://browser.engineering/text.html"
 
     Browser().load(URL(uri, 0))
