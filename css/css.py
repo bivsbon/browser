@@ -4,6 +4,7 @@ from html.element import Element
 class TagSelector:
     def __init__(self, tag):
         self.tag = tag
+        self.priority = 1
 
     def matches(self, node):
         return isinstance(node, Element) and self.tag == node.tag
@@ -13,6 +14,7 @@ class DescendantSelector:
     def __init__(self, ancestor: TagSelector, descendant: TagSelector):
         self.ancestor = ancestor
         self.descendant = descendant
+        self.priority = ancestor.priority + descendant.priority
 
     def matches(self, node):
         if not self.descendant.matches(node):
@@ -22,6 +24,7 @@ class DescendantSelector:
                 return True
             node = node.parent
         return False
+
 
 class CSSParser:
     def __init__(self, s):

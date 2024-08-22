@@ -17,6 +17,12 @@ class Config:
         "figcaption", "main", "div", "table", "form", "fieldset",
         "legend", "details", "summary"
     ]
+    INHERITED_PROPERTIES = {
+        "font-size": "16px",
+        "font-style": "normal",
+        "font-weight": "normal",
+        "color": "black",
+    }
 
     @classmethod
     def set_width(cls, width):

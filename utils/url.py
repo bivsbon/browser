@@ -146,3 +146,18 @@ class URL:
             return f"{self.scheme}://{self.host}:{self.port}{value}"
         else:
             return value
+
+    def resolve(self, url):
+        if "://" in url:
+            return URL(url, 0)
+        if not url.startswith("/"):
+            dir_, _ = self.path.rsplit("/", 1)
+            while url.startswith("../"):
+                _, url = url.split("/", 1)
+                if "/" in dir_:
+                    dir_, _ = dir_.rsplit("/", 1)
+            url = dir_ + "/" + url
+        if url.startswith("//"):
+            return URL(self.scheme + ":" + url, 0)
+        else:
+            return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url, 0)
