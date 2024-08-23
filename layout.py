@@ -40,15 +40,13 @@ class BlockLayout:
     def __init__(self, node, parent, previous, view_source=False):
         self.view_source = view_source
         self.display_list = []
-        self.cursor_x = Config.HSTEP
-        self.cursor_y = Config.VSTEP
+        self.cursor_x = 0
+        self.cursor_y = 0
         self.weight = "normal"
         self.style = "roman"
         self.size = 12
         self.line = []
         self.sup = False
-
-        # self.recurse(node)
 
         self.node = node
         self.parent = parent
@@ -59,13 +57,6 @@ class BlockLayout:
         self.y = None
         self.width = None
         self.height = None
-
-        # self.max_scroll = 0 if self.cursor_y - Config.height + Config.VSTEP*1.25 < 0 else self.cursor_y - Config.height + Config.VSTEP*1.25
-        # self.scroll_bar_x0 = Config.width - Config.HSTEP + 2
-        # self.scroll_bar_x1 = Config.width - 2
-        # self.scroll_bar_height = Config.height / (self.max_scroll + Config.height) * Config.height
-
-        self.flush()
 
     def layout_mode(self):
         if isinstance(self.node, Text):
@@ -89,17 +80,10 @@ class BlockLayout:
         if mode == "block":
             previous = None
             for child in self.node.children:
-                next = BlockLayout(child, self, previous)
-                self.children.append(next)
-                previous = next
+                next_ = BlockLayout(child, self, previous)
+                self.children.append(next_)
+                previous = next_
         else:
-            self.cursor_x = 0
-            self.cursor_y = 0
-            self.weight = "normal"
-            self.style = "roman"
-            self.size = 12
-
-            self.line = []
             self.recurse(self.node)
             self.flush()
         for child in self.children:
@@ -112,16 +96,12 @@ class BlockLayout:
             self.height = self.cursor_y
 
     def word(self, node, word):
-        # if word == "div":
-        #     print(node.style["font-size"])
         color = node.style["color"]
         weight = node.style["font-weight"]
         style = node.style["font-style"]
         if style == "normal":
             style = "roman"
         size = int(float(node.style["font-size"][:-2]) * .75)
-        # if size < 16:
-        # print(word, size, node.style["font-size"])
         font_ = get_font(size if not self.sup else int(size/2), weight, style)
         w = font_.measure(word)
 
@@ -131,56 +111,7 @@ class BlockLayout:
         self.line.append((self.cursor_x, word, font_, color, self.sup))
         self.cursor_x += w + font_.measure(" ")
 
-    def open_tag(self, tag):
-        if tag == "i":
-            self.style = "italic"
-        elif tag == "b":
-            self.weight = "bold"
-        elif tag == "small":
-            self.size -= 2
-        elif tag == "big":
-            self.size += 4
-        elif tag == "sup":
-            self.sup = True
-        elif tag == "br":
-            self.flush()
-
-    def close_tag(self, tag):
-        if tag == "i":
-            self.style = "roman"
-        elif tag == "b":
-            self.weight = "normal"
-        elif tag == "small":
-            self.size += 2
-        elif tag == "big":
-            self.size -= 4
-        elif tag == "sup":
-            self.sup = False
-        elif tag == "p":
-            self.flush()
-            self.cursor_y += Config.VSTEP
-        elif tag == "h1":
-            self.flush(center=True)
-            self.cursor_y += Config.VSTEP
-
     def recurse(self, node):
-        # if isinstance(node, Text):
-        #     prev_weight = self.weight
-        #     if self.view_source:
-        #         self.weight = "bold"
-        #     for word in node.text.split():
-        #         self.word(node, word)
-        #     self.weight = prev_weight
-        # elif self.view_source:
-        #     self.word(f"<{node.tag}>")
-        #     for child in node.children:
-        #         self.recurse(child)
-        # else:
-        #     self.open_tag(node.tag)
-        #     for child in node.children:
-        #         self.recurse(child)
-        #     self.close_tag(node.tag)
-
         if isinstance(node, Text):
             for word in node.text.split():
                 self.word(node, word)

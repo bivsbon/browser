@@ -2,7 +2,7 @@ import tkinter
 
 from layout import DocumentLayout
 from html.element import Element
-from css.css import CSSParser, TagSelector
+from css.parser import CSSParser, TagSelector
 from html.parser import HTMLParser
 from utils.url import URL
 from utils.config import Config
@@ -84,12 +84,6 @@ class Browser:
                 continue
             rules.extend(CSSParser(body).parse())
 
-            for selector, body in rules:
-                if isinstance(selector, TagSelector) and selector.tag == "pre":
-                    print(body)
-                    print(link)
-                    print()
-
         style(self.nodes, sorted(rules, key=cascade_priority))
         style(self.nodes, rules)
 
@@ -98,8 +92,6 @@ class Browser:
         self.display_list = []
         paint_tree(self.document, self.display_list)
 
-        # self.layout = BlockLayout(self.nodes, view_source=self.view_source_enable)
-        # self.display_list = self.layout.display_list
         self.draw()
 
     def draw(self):
@@ -133,26 +125,24 @@ def paint_tree(layout_object, display_list: list):
 
 def style(node, rules: list):
     node.style = {}
+    # Set defaut properties
     for property_, default_value in Config.INHERITED_PROPERTIES.items():
         if node.parent:
             node.style[property_] = node.parent.style[property_]
         else:
             node.style[property_] = default_value
-    # if isinstance(node, Element) and node.tag == "pre":
-    #     print("Before:", node.tag, node.style["font-size"])
 
     for selector, body in rules:
         if not selector.matches(node):
             continue
         for property_, value in body.items():
             node.style[property_] = value
-            # print(node.tag, property_, value)
+
+    # Inline CSS
     if isinstance(node, Element) and "style" in node.attributes:
         pairs = CSSParser(node.attributes["style"]).body()
         for property_, value in pairs.items():
             node.style[property_] = value
-    # if isinstance(node, Element) and node.tag == "pre":
-    #     print("After:", node.tag, node.style["font-size"])
 
     if node.style["font-size"].endswith("%"):
         if node.parent:
@@ -176,7 +166,7 @@ def tree_to_list(tree, li):
 
 def cascade_priority(rule):
     """
-    Tính ra priority của rule CSS này
+    Calculate priority of this CSS rule
     """
     selector, body = rule
     return selector.priority
