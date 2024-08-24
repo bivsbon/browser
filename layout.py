@@ -1,6 +1,7 @@
 from html.element import Text, Element
 from utils.fonts import get_font
 from utils.config import Config
+from utils.shape import Rect
 
 
 class TextLayout:
@@ -11,10 +12,10 @@ class TextLayout:
         self.parent = parent
         self.previous = previous
 
-        self.width = None
-        self.height = None
-        self.x = None
-        self.y = None
+        self.width = 0
+        self.height = 0
+        self.x = 0
+        self.y = 0
         self.font = None
 
     def layout(self):
@@ -29,6 +30,7 @@ class TextLayout:
 
         if self.previous:
             space = self.previous.font.measure(" ")
+            self.x = self.previous.x + self.previous.width + space
         else:
             self.x = self.parent.x
 
@@ -46,34 +48,33 @@ class LineLayout:
         self.previous = previous
         self.children = []
 
-        self.width = None
-        self.height = None
+        self.width = 0
+        self.height = 0
         self.x = 0
         self.y = 0
 
     def layout(self):
-        # Calculate width, x, y. Height will be calculated later after laying out the
+        # Calculate width, x, y. Height will be calculated later after laying out the children
         self.width = self.parent.width
         self.x = self.parent.x
 
         if self.previous:
             self.y = self.previous.y + self.previous.height
-            print(self.previous.y, self.previous.height)
         else:
             self.y = self.parent.y
 
         for word in self.children:
             word.layout()
 
-        max_ascent = max([word.font.metrics("ascent")
-                          for word in self.children])
-        baseline = self.y + 1.25 * max_ascent
-        for word in self.children:
-            word.y = baseline - word.font.metrics("ascent")
-        max_descent = max([word.font.metrics("descent")
-                           for word in self.children])
+        if self.children:
+            max_ascent = max([word.font.metrics("ascent") for word in self.children])
+            baseline = self.y + 1.25 * max_ascent
+            for word in self.children:
+                word.y = baseline - word.font.metrics("ascent")
+            max_descent = max([word.font.metrics("descent")
+                               for word in self.children])
 
-        self.height = 1.25 * (max_ascent + max_descent)
+            self.height = 1.25 * (max_ascent + max_descent)
 
     def paint(self):
         return []
@@ -103,7 +104,7 @@ class DocumentLayout:
         self.children.append(child)
         child.layout()
         self.height = child.height
-        self.max_scroll = 0 if self.height - Config.height + 2*Config.VSTEP < 0 else self.height - Config.height + 2*Config.VSTEP
+        self.max_scroll = 0 if self.height - Config.height + 2 * Config.VSTEP < 0 else self.height - Config.height + 2 * Config.VSTEP
         self.scroll_bar_x0 = Config.width - Config.HSTEP + 2
         self.scroll_bar_x1 = Config.width - 2
         self.scroll_bar_height = Config.height / (self.max_scroll + Config.height) * Config.height
@@ -184,13 +185,12 @@ class BlockLayout:
         self.height = sum([child.height for child in self.children])
 
     def word(self, node, word):
-        color = node.style["color"]
         weight = node.style["font-weight"]
         style = node.style["font-style"]
         if style == "normal":
             style = "roman"
         size = int(float(node.style["font-size"][:-2]) * .75)
-        font_ = get_font(size if not self.sup else int(size/2), weight, style)
+        font_ = get_font(size if not self.sup else int(size / 2), weight, style)
         w = font_.measure(word)
 
         if self.cursor_x + w > self.width:
@@ -249,6 +249,9 @@ class BlockLayout:
         self.cursor_x = 0
         self.line = []
 
+    def self_rect(self):
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+
     def paint(self):
         cmds = []
         # if isinstance(self.node, Element) and self.node.tag == "pre":
@@ -261,8 +264,7 @@ class BlockLayout:
         bgcolor = self.node.style.get("background-color",
                                       "transparent")
         if bgcolor != "transparent":
-            x2, y2 = self.x + self.width, self.y + self.height
-            rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+            rect = DrawRect(self.self_rect(), bgcolor)
             cmds.append(rect)
         return cmds
 
@@ -287,11 +289,11 @@ class DrawText:
 
 
 class DrawRect:
-    def __init__(self, x1, y1, x2, y2, color):
-        self.top = y1
-        self.left = x1
-        self.bottom = y2
-        self.right = x2
+    def __init__(self, rect: Rect, color):
+        self.left = rect.left
+        self.right = rect.right
+        self.top = rect.top
+        self.bottom = rect.bottom
         self.color = color
 
     def execute(self, scroll, canvas):
@@ -300,3 +302,30 @@ class DrawRect:
             self.right, self.bottom - scroll,
             width=0,
             fill=self.color)
+
+
+class DrawOutline:
+    def __init__(self, rect, color, thickness):
+        self.rect = rect
+        self.color = color
+        self.thickness = thickness
+
+    def execute(self, scroll, canvas):
+        canvas.create_rectangle(
+            self.rect.left, self.rect.top - scroll,
+            self.rect.right, self.rect.bottom - scroll,
+            width=self.thickness,
+            outline=self.color)
+
+
+class DrawLine:
+    def __init__(self, x1, y1, x2, y2, color, thickness):
+        self.rect = Rect(x1, y1, x2, y2)
+        self.color = color
+        self.thickness = thickness
+
+    def execute(self, scroll, canvas):
+        canvas.create_line(
+            self.rect.left, self.rect.top - scroll,
+            self.rect.right, self.rect.bottom - scroll,
+            fill=self.color, width=self.thickness)

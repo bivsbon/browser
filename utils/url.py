@@ -12,6 +12,7 @@ class URL:
     _MAX_REDIRECTS = 2
 
     def __init__(self, url: str, n_redirects: int):
+        self.full_url = url
         self.scheme = self._get_scheme(url)
         self.n_redirects = n_redirects
         if not self.scheme:

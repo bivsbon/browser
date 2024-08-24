@@ -25,7 +25,7 @@ if __name__ == "__main__":
     # uri = "file://index.html"
     # uri = "view-source:https://browser.engineering/text.html"
 
-    Browser().load(URL(uri, 0))
+    Browser().new_tab(URL(uri, 0))
     tkinter.mainloop()
     # body = URL(uri, 0).request()
     # tree = HTMLParser(body).parse()
