@@ -4,3 +4,6 @@ class Rect:
         self.top = top
         self.right = right
         self.bottom = bottom
+
+    def contains_point(self, x, y):
+        return self.left <= x < self.right and self.top <= y < self.bottom

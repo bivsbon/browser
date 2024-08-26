@@ -34,6 +34,16 @@ class Chrome:
             tabs_start + tab_width * i, self.tabbar_top,
             tabs_start + tab_width * (i + 1), self.tabbar_bottom)
 
+    def click(self, x, y):
+        if self.newtab_rect.contains_point(x, y):
+            self.browser.new_tab(URL("https://browser.engineering/"))
+        else:
+            for i, tab in enumerate(self.browser.tabs):
+                if self.tab_rect(i).contains_point(x, y):
+                    self.browser.active_tab = tab
+                    break
+
+
     def paint(self):
         cmds = []
         cmds.append(DrawRect(
@@ -91,6 +101,7 @@ class Browser:
 
     def click(self, e: tkinter.Event):
         self.active_tab.click(e, self.chrome.bottom)
+        self.chrome.click(e.x, e.y)
         self.draw()
 
     def scrolldown(self, e):
@@ -125,30 +136,27 @@ class Browser:
 
 
 class Tab:
-    layout = None
-    display_list = []
-    nodes = None
-    view_source_enable = False
-    document = None
-
-    scroll = 0
-
     def __init__(self,tab_height):
+        self.layout = None
+        self.display_list = []
+        self.nodes = None
+        self.view_source_enable = False
+        self.document = None
+
+        self.scroll = 0
+        self.max_scroll = 0
+        self.scroll_bar_x0 = 0
+        self.scroll_bar_x1 = 0
+        self.scroll_bar_height = 0
+
         self.url = None
         self.tab_height = tab_height
-        max_y = max(
-            self.document.height + 2 * VSTEP - self.tab_height, 0)
-        self.scroll = min(self.scroll + SCROLL_STEP, max_y)
 
     def scrolldown(self, e, scroll_step=Config.SCROLL_STEP):
-        self.scroll += scroll_step
-        if self.scroll > self.document.max_scroll:
-            self.scroll = self.document.max_scroll
+        self.scroll = min(self.scroll + scroll_step, self.max_scroll)
 
     def scrollup(self, e, scroll_step=Config.SCROLL_STEP):
-        self.scroll -= scroll_step
-        if self.scroll < 0:
-            self.scroll = 0
+        self.scroll = max(self.scroll - scroll_step, 0)
 
     def scroll_mouse_wheel(self, e: tkinter.Event):
         if e.delta > 0:
@@ -182,6 +190,7 @@ class Tab:
             Config.height = e.height
             self.document = DocumentLayout(self.nodes)
             self.document.layout()
+            self.calculate_scrolling()
             self.display_list = []
             paint_tree(self.document, self.display_list)
 
@@ -214,8 +223,17 @@ class Tab:
 
         self.document = DocumentLayout(self.nodes)
         self.document.layout()
+
+        self.calculate_scrolling()
+
         self.display_list = []
         paint_tree(self.document, self.display_list)
+
+    def calculate_scrolling(self):
+        self.max_scroll = max(self.document.height + 2 * Config.VSTEP - self.tab_height, 0)
+        self.scroll_bar_x0 = Config.width - Config.HSTEP + 2
+        self.scroll_bar_x1 = Config.width - 2
+        self.scroll_bar_height = Config.height / (self.max_scroll + Config.height) * Config.height
 
     def draw(self, canvas, offset=0):
         for cmd in self.display_list:
@@ -228,12 +246,12 @@ class Tab:
         self.draw_scrollbar(canvas, offset)
 
     def draw_scrollbar(self, canvas, offset=0):
-        if self.document.max_scroll != 0:
-            y0 = self.scroll / self.document.max_scroll * (self.tab_height - self.document.scroll_bar_height) + offset
-            canvas.create_rectangle(self.document.scroll_bar_x0,
+        if self.max_scroll != 0:
+            y0 = self.scroll / self.max_scroll * (self.tab_height - self.scroll_bar_height) + offset
+            canvas.create_rectangle(self.scroll_bar_x0,
                                     y0,
-                                    self.document.scroll_bar_x1,
-                                    y0 + self.document.scroll_bar_height,
+                                    self.scroll_bar_x1,
+                                    y0 + self.scroll_bar_height,
                                     fill="red")
 
 

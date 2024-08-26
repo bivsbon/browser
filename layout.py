@@ -90,10 +90,6 @@ class DocumentLayout:
         self.y = 0
         self.width = None
         self.height = None
-        self.max_scroll = None
-        self.scroll_bar_x0 = None
-        self.scroll_bar_x1 = None
-        self.scroll_bar_height = None
 
     def layout(self):
         self.width = Config.width - 2 * Config.HSTEP
@@ -104,10 +100,6 @@ class DocumentLayout:
         self.children.append(child)
         child.layout()
         self.height = child.height
-        self.max_scroll = 0 if self.height - Config.height + 2 * Config.VSTEP < 0 else self.height - Config.height + 2 * Config.VSTEP
-        self.scroll_bar_x0 = Config.width - Config.HSTEP + 2
-        self.scroll_bar_x1 = Config.width - 2
-        self.scroll_bar_height = Config.height / (self.max_scroll + Config.height) * Config.height
 
     def paint(self):
         return []

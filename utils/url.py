@@ -11,7 +11,7 @@ class URL:
     _SUPPORTED_SCHEME = ["http", "https", "file", "data", "view-source", "about"]
     _MAX_REDIRECTS = 2
 
-    def __init__(self, url: str, n_redirects: int):
+    def __init__(self, url: str, n_redirects: int = 0):
         self.full_url = url
         self.scheme = self._get_scheme(url)
         self.n_redirects = n_redirects
@@ -150,7 +150,7 @@ class URL:
 
     def resolve(self, url):
         if "://" in url:
-            return URL(url, 0)
+            return URL(url)
         if not url.startswith("/"):
             dir_, _ = self.path.rsplit("/", 1)
             while url.startswith("../"):
