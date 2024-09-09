@@ -4,6 +4,65 @@ from utils.config import Config
 from utils.shape import Rect
 
 
+class InputLayout:
+    def __init__(self, node, parent, previous):
+        self.node = node
+        self.children = []
+        self.parent = parent
+        self.previous = previous
+
+        self.width = Config.INPUT_WIDTH_PX
+        self.height = 0
+        self.x = 0
+        self.y = 0
+        self.font = None
+
+    def layout(self):
+        weight = self.node.style["font-weight"]
+        style = self.node.style["font-style"]
+        if style == "normal":
+            style = "roman"
+        size = int(float(self.node.style["font-size"][:-2]) * .75)
+        self.font = get_font(size, weight, style)
+
+        self.width = Config.INPUT_WIDTH_PX
+
+        if self.previous:
+            space = self.previous.font.measure(" ")
+            self.x = self.previous.x + self.previous.width + space
+        else:
+            self.x = self.parent.x
+
+        self.height = self.font.metrics("linespace")
+
+    def self_rect(self):
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+
+    def should_paint(self):
+        return isinstance(self.node, Text) or (self.node.tag != "input" and self.node.tag != "button")
+
+    def paint(self):
+        cmds = []
+        bgcolor = self.node.style.get("background-color",
+                                      "transparent")
+        if bgcolor != "transparent":
+            rect = DrawRect(self.self_rect(), bgcolor)
+            cmds.append(rect)
+
+        text = ""
+        if self.node.tag == "input":
+            text = self.node.attributes.get("value", "")
+        elif self.node.tag == "button":
+            if len(self.node.children) == 1 and isinstance(self.node.children[0], Text):
+                text = self.node.children[0].text
+            else:
+                print("Ignoring HTML contents inside button")
+                text = ""
+        color = self.node.style["color"]
+        cmds.append(DrawText(self.x, self.y, text, self.font, color))
+        return cmds
+
+
 class TextLayout:
     def __init__(self, node, word, parent, previous):
         self.node = node
@@ -35,6 +94,9 @@ class TextLayout:
             self.x = self.parent.x
 
         self.height = self.font.metrics("linespace")
+
+    def should_paint(self):
+        return isinstance(self.node, Text) or (self.node.tag != "input" and self.node.tag != "button")
 
     def paint(self):
         color = self.node.style["color"]
@@ -76,6 +138,9 @@ class LineLayout:
 
             self.height = 1.25 * (max_ascent + max_descent)
 
+    def should_paint(self):
+        return isinstance(self.node, Text) or (self.node.tag != "input" and self.node.tag != "button")
+
     def paint(self):
         return []
 
@@ -100,6 +165,9 @@ class DocumentLayout:
         self.children.append(child)
         child.layout()
         self.height = child.height
+
+    def should_paint(self):
+        return isinstance(self.node, Text) or (self.node.tag != "input" and self.node.tag != "button")
 
     def paint(self):
         return []
@@ -133,6 +201,9 @@ class BlockLayout:
         new_line = LineLayout(self.node, self, last_line)
         self.children.append(new_line)
 
+    def should_paint(self):
+        return isinstance(self.node, Text) or (self.node.tag != "input" and self.node.tag != "button")
+
     def layout_mode(self):
         """
         Return the layout mode of this node.
@@ -147,7 +218,7 @@ class BlockLayout:
             return "inline"
         elif any([isinstance(child, Element) and child.tag in Config.BLOCK_ELEMENTS for child in self.node.children]):
             return "block"
-        elif self.node.children:
+        elif self.node.children or self.node.tag == "input":
             return "inline"
         else:
             return "block"
@@ -196,6 +267,24 @@ class BlockLayout:
 
         self.cursor_x += w + font_.measure(" ")
 
+    def input(self, node):
+        w = Config.INPUT_WIDTH_PX
+        if self.cursor_x + w > self.width:
+            self.new_line()
+        line = self.children[-1]
+        previous_word = line.children[-1] if line.children else None
+        input_ = InputLayout(node, line, previous_word)
+        line.children.append(input_)
+
+        weight = node.style["font-weight"]
+        style = node.style["font-style"]
+        if style == "normal":
+            style = "roman"
+        size = int(float(node.style["font-size"][:-2]) * .75)
+        font = get_font(size, weight, style)
+
+        self.cursor_x += w + font.measure(" ")
+
     def recurse(self, node):
         """
         Recurse through the child nodes in the HTML tree to layout words
@@ -208,6 +297,8 @@ class BlockLayout:
         else:
             if node.tag == "br":
                 self.flush()
+            elif node.tag == "input" or node.tag == "button":
+                self.input(node)
             for child in node.children:
                 self.recurse(child)
 

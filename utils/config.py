@@ -23,6 +23,7 @@ class Config:
         "font-weight": "normal",
         "color": "black",
     }
+    INPUT_WIDTH_PX = 200
 
     @classmethod
     def set_width(cls, width):
