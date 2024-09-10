@@ -12,6 +12,12 @@ from utils.config import Config
 DEFAULT_STYLE_SHEET = CSSParser(open("style.css").read()).parse()
 
 
+def print_tree(node, indent=0):
+    print(" " * indent, node)
+    for child in node.children:
+        print_tree(child, indent + 2)
+
+
 class Chrome:
     def __init__(self, browser):
         self.browser = browser
@@ -67,7 +73,6 @@ class Chrome:
                 if self.tab_rect(i).contains_point(x, y):
                     self.browser.active_tab = tab
                     break
-
 
     def paint(self):
         cmds = []
@@ -134,6 +139,8 @@ class Chrome:
     def keypress(self, char):
         if self.focus == "address bar":
             self.address_bar += char
+            return True
+        return False
 
     def enter(self):
         if self.focus == "address bar":
@@ -143,6 +150,11 @@ class Chrome:
     def backspace(self):
         if self.focus == "address bar" and self.address_bar:
             self.address_bar = self.address_bar[:-1]
+            return True
+        return False
+
+    def blur(self):
+        self.focus = None
 
 
 class Browser:
@@ -167,25 +179,39 @@ class Browser:
         self.window.bind("<BackSpace>", self.handle_backspace)
 
         self.chrome = Chrome(self)
+        self.focus = None
 
     def handle_backspace(self, e: tkinter.Event):
-        self.chrome.backspace()
-        self.draw()
+        if self.chrome.backspace():
+            self.draw()
+        elif self.focus == "content":
+            self.active_tab.backspace()
+            self.draw()
 
     def handle_enter(self, e: tkinter.Event):
         self.chrome.enter()
         self.draw()
 
     def handle_key(self, e: tkinter.Event):
-        if len(e.char) == 0: return
+        if len(e.char) == 0:
+            return
         if not (0x20 <= ord(e.char) < 0x7f):
             return
-        self.chrome.keypress(e.char)
-        self.draw()
+
+        if self.chrome.keypress(e.char):
+            self.draw()
+        elif self.focus == "content":
+            self.active_tab.keypress(e.char)
+            self.draw()
 
     def click(self, e: tkinter.Event):
-        self.active_tab.click(e, self.chrome.bottom)
-        self.chrome.click(e.x, e.y)
+        if e.y < self.chrome.bottom:
+            self.focus = None
+            self.chrome.click(e.x, e.y)
+        else:
+            self.focus = "content"
+            self.chrome.blur()
+            self.active_tab.click(e, self.chrome.bottom)
         self.draw()
 
     def scrolldown(self, e):
@@ -226,6 +252,7 @@ class Tab:
         self.nodes = None
         self.view_source_enable = False
         self.document = None
+        self.rules = DEFAULT_STYLE_SHEET.copy()
 
         self.scroll = 0
         self.max_scroll = 0
@@ -237,6 +264,7 @@ class Tab:
         self.tab_height = tab_height
 
         self.history = []
+        self.focus = None
 
     def scrolldown(self, e, scroll_step=Config.SCROLL_STEP):
         self.scroll = min(self.scroll + scroll_step, self.max_scroll)
@@ -249,6 +277,16 @@ class Tab:
             self.scrollup(e, 7 * e.delta)
         else:
             self.scrolldown(e, -7 * e.delta)
+
+    def backspace(self):
+        value = self.focus.attributes["value"]
+        self.focus.attributes["value"] = value[:-1]
+        self.render()
+
+    def keypress(self, char):
+        if self.focus:
+            self.focus.attributes["value"] += char
+            self.render()
 
     def click(self, e: tkinter.Event, offset_y=0):
         x, y = e.x, e.y
@@ -268,6 +306,15 @@ class Tab:
                 url = self.url.resolve(elt.attributes["href"])
                 print("Going to:", url.full_url)
                 return self.load(url)
+            elif elt.tag == "input":
+                elt.attributes["value"] = ""
+
+                # Un-focus the previously focused element
+                if self.focus:
+                    self.focus.is_focused = False
+                self.focus = elt
+                elt.is_focused = True
+                return self.render()
             elt = elt.parent
 
     def resize(self, e: tkinter.Event):
@@ -294,9 +341,7 @@ class Tab:
         self.view_source_enable = (url.scheme == "view-source")
         self.nodes = HTMLParser(body).parse()
 
-        rules = DEFAULT_STYLE_SHEET.copy()
-
-        # CSS
+        # Build the CSS rules
         links = [node.attributes["href"]
                  for node in tree_to_list(self.nodes, [])
                  if isinstance(node, Element)
@@ -310,13 +355,16 @@ class Tab:
                 body = style_url.request()
             except:
                 continue
-            rules.extend(CSSParser(body).parse())
+            self.rules.extend(CSSParser(body).parse())
 
-        style(self.nodes, sorted(rules, key=cascade_priority))
-        style(self.nodes, rules)
+        self.render()
+
+    def render(self):
+        style(self.nodes, sorted(self.rules, key=cascade_priority))
 
         self.document = DocumentLayout(self.nodes)
         self.document.layout()
+        # print_tree(self.document)
 
         self.calculate_scrolling()
 

@@ -16,6 +16,7 @@ class Element:
         self.children = []
         self.parent = parent
         self.style = {}
+        self.is_focused = False
 
     def __repr__(self):
         return "<" + self.tag + ">"

@@ -164,6 +164,8 @@ class URL:
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url, 0)
 
     def __str__(self):
+        if self.scheme == "data":
+            return self.full_url
         port_part = ":" + str(self.port)
         if self.scheme == "https" and self.port == 443:
             port_part = ""

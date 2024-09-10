@@ -1,3 +1,5 @@
+import tkinter
+
 from html.element import Text, Element
 from utils.fonts import get_font
 from utils.config import Config
@@ -39,7 +41,7 @@ class InputLayout:
         return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
 
     def should_paint(self):
-        return isinstance(self.node, Text) or (self.node.tag != "input" and self.node.tag != "button")
+        return True
 
     def paint(self):
         cmds = []
@@ -60,6 +62,12 @@ class InputLayout:
                 text = ""
         color = self.node.style["color"]
         cmds.append(DrawText(self.x, self.y, text, self.font, color))
+
+        # Draw cursor if focused
+        if self.node.is_focused:
+            cx = self.x + self.font.measure(text)
+            cmds.append(DrawLine(
+                cx, self.y, cx, self.y + self.height, "black", 1))
         return cmds
 
 
@@ -403,11 +411,13 @@ class DrawOutline:
 
 class DrawLine:
     def __init__(self, x1, y1, x2, y2, color, thickness):
+        self.top = y1
+        self.bottom = y2
         self.rect = Rect(x1, y1, x2, y2)
         self.color = color
         self.thickness = thickness
 
-    def execute(self, scroll, canvas):
+    def execute(self, scroll, canvas: tkinter.Canvas):
         canvas.create_line(
             self.rect.left, self.rect.top - scroll,
             self.rect.right, self.rect.bottom - scroll,
