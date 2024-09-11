@@ -17,10 +17,10 @@ def print_tree(node, indent=0):
 
 
 if __name__ == "__main__":
-    uri = "data:text/html,<input value=\"abc\"><button>Click</button>"
+    # uri = "data:text/html,<input value=\"abc\"><button>Click</button>"
     # uri = ("data:text/html,<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij<p>abcoqwidjqwoid qwd qwdowijqwjo oj owqdjio iojwqioj ojiwqdiojw doijwqdoij</p>")
     # uri = "https://browser.engineering/examples/example3-sizes.html"
-    # uri = "https://browser.engineering/styles.html"
+    uri = "https://browser.engineering/styles.html"
     # uri = "file://browser.engineering/text.html"
     # uri = "file://index.html"
     # uri = "view-source:https://browser.engineering/text.html"

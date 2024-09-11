@@ -1,4 +1,5 @@
 import tkinter
+import urllib
 
 from layout import DocumentLayout, DrawText, DrawOutline, DrawRect, DrawLine
 from html.element import Element, Text
@@ -288,6 +289,24 @@ class Tab:
             self.focus.attributes["value"] += char
             self.render()
 
+    def submit_form(self, elt):
+        # Find all input tag in that form
+        inputs = [node for node in tree_to_list(elt, [])
+                  if isinstance(node, Element)
+                  and node.tag == "input"
+                  and "name" in node.attributes]
+
+        body = ""
+        for input_ in inputs:
+            name = input_.attributes["name"]
+            value = input_.attributes.get("value", "")
+            name = urllib.parse.quote(name)
+            value = urllib.parse.quote(value)
+            body += "&" + name + "=" + value
+        body = body[1:]
+        url = self.url.resolve(elt.attributes["action"])
+        self.load(url, body)
+
     def click(self, e: tkinter.Event, offset_y=0):
         x, y = e.x, e.y
         y += self.scroll - offset_y
@@ -315,6 +334,11 @@ class Tab:
                 self.focus = elt
                 elt.is_focused = True
                 return self.render()
+            elif elt.tag == "button":
+                while elt:
+                    if elt.tag == "form" and "action" in elt.attributes:
+                        return self.submit_form(elt)
+                    elt = elt.parent
             elt = elt.parent
 
     def resize(self, e: tkinter.Event):
@@ -333,11 +357,12 @@ class Tab:
             back = self.history.pop()
             self.load(back)
 
-    def load(self, url: URL):
+    def load(self, url: URL, payload=None):
         print("Loading...")
         self.history.append(url)
         self.url = url
-        body = url.request()
+        body = url.request(payload)
+        print(body)
         self.view_source_enable = (url.scheme == "view-source")
         self.nodes = HTMLParser(body).parse()
 

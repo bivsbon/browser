@@ -35,9 +35,9 @@ class URL:
             self.scheme = "about"
             self.url = "blank"
 
-    def request(self) -> str:
+    def request(self, payload=None) -> str:
         if self.scheme == "http" or self.scheme == "https":
-            return self._request_http_and_https()
+            return self._request_http_and_https(payload)
         elif self.scheme == "file":
             return self._request_file()
         elif self.scheme == "data":
@@ -47,23 +47,31 @@ class URL:
         elif self.scheme == "about":
             return self._request_about()
 
-    def _request_http_and_https(self) -> str:
+    def _request_http_and_https(self, payload=None) -> str:
         s = socket.socket(
             family=socket.AF_INET,
             type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP,
         )
+        method = "POST" if payload else "GET"
         if self.scheme == "https":
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
 
         s.connect((self.host, self.port))
-        request = "GET {} HTTP/1.0\r\n".format(self.path)
+        request = "{} {} HTTP/1.0\r\n".format(method, self.path)
         request += "Host: {}\r\n".format(self.host)
         request += "Connection: {}\r\n".format("close")
         request += "User-Agent: {}\r\n".format("Quack Quack")
         request += "Accept-Encoding: {}\r\n".format("gzip")
+        if payload:
+            length = len(payload.encode("utf8"))
+            request += "Content-Length: {}\r\n".format(length)
         request += "\r\n"
+
+        # Append payload after header
+        if payload:
+            request += payload
         s.send(request.encode("utf8"))
 
         response = s.makefile("rb", encoding="utf8", newline="\r\n")
